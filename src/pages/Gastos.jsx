@@ -1,5 +1,13 @@
 import { useState, useEffect } from "react";
-import { obtenerDeStorage, guardarEnStorage } from "../utils/storage";
+import {
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  doc,
+  deleteDoc,
+} from "firebase/firestore";
+import { db } from "../firebase";
 import { formatearMoneda } from "../utils/format";
 import dayjs from "dayjs";
 import FiltroMes from "../components/FiltroMes";
@@ -8,33 +16,31 @@ import GastoForm from "../components/GastoForm";
 export default function Gastos() {
   const [gastos, setGastos] = useState([]);
   const [gastosFiltrados, setGastosFiltrados] = useState([]);
-  const [categorias, setCategorias] = useState(() =>
-    obtenerDeStorage("categorias", [])
-  );
 
   useEffect(() => {
-    const data = obtenerDeStorage("gastos", []);
-    setGastos(data.reverse());
+    const q = query(collection(db, "gastos"), orderBy("fecha", "desc"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setGastos(data);
+    });
+
+    return () => unsubscribe();
   }, []);
 
-  const agregarGasto = (categoria, monto, descripcion, fecha) => {
-    const nuevoGasto = { categoria, monto, descripcion, fecha };
-    const actualizados = [...gastos, nuevoGasto].reverse();
-    setGastos(actualizados.reverse());
-    guardarEnStorage("gastos", actualizados.reverse());
-  };
-
-  const eliminarGasto = (indexRevertido) => {
-    const confirmado = window.confirm(
-      "¿Estás seguro de que querés eliminar este gasto?"
-    );
+  const eliminarGasto = async (id) => {
+    const confirmado = window.confirm("¿Eliminar este gasto?");
     if (!confirmado) return;
 
-    const indexOriginal = gastos.length - 1 - indexRevertido;
-    const nuevos = [...gastos];
-    nuevos.splice(indexOriginal, 1);
-    setGastos([...nuevos].reverse());
-    guardarEnStorage("gastos", nuevos);
+    try {
+      await deleteDoc(doc(db, "gastos", id));
+      console.log("🗑 Gasto eliminado de Firebase");
+    } catch (error) {
+      console.error("❌ Error al eliminar gasto:", error);
+    }
   };
 
   return (
@@ -43,7 +49,7 @@ export default function Gastos() {
         Historial de gastos
       </h2>
 
-      <GastoForm categorias={categorias} onAgregarGasto={agregarGasto} />
+      <GastoForm />
 
       <FiltroMes items={gastos} onFiltrar={setGastosFiltrados} />
 
@@ -53,9 +59,9 @@ export default function Gastos() {
         </p>
       ) : (
         <ul className="space-y-3">
-          {gastosFiltrados.map((gasto, i) => (
+          {gastosFiltrados.map((gasto) => (
             <li
-              key={i}
+              key={gasto.id}
               className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-center"
             >
               <div>
@@ -63,7 +69,10 @@ export default function Gastos() {
                   {gasto.descripcion || "Gasto"}
                 </p>
                 <p className="text-sm text-gray-500">
-                  {gasto.categoria} – {dayjs(gasto.fecha).format("DD/MM/YYYY")}
+                  {gasto.categoria} –{" "}
+                  {dayjs(
+                    gasto.fecha?.toDate ? gasto.fecha.toDate() : gasto.fecha
+                  ).format("DD/MM/YYYY")}
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -71,7 +80,7 @@ export default function Gastos() {
                   - ${formatearMoneda(gasto.monto)}
                 </p>
                 <button
-                  onClick={() => eliminarGasto(i)}
+                  onClick={() => eliminarGasto(gasto.id)}
                   className="text-sm px-2 py-1 rounded bg-white text-red-600 hover:bg-gray-200 border"
                   title="Eliminar gasto"
                 >

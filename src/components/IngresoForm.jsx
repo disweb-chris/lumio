@@ -3,7 +3,9 @@ import { useState } from "react";
 export default function IngresoForm({ onAgregarIngreso }) {
   const [descripcion, setDescripcion] = useState("");
   const [monto, setMonto] = useState("");
-  const [fecha, setFecha] = useState("");
+  const [fecha, setFecha] = useState(() =>
+    new Date().toISOString().split("T")[0]
+  );
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -14,20 +16,26 @@ export default function IngresoForm({ onAgregarIngreso }) {
       descripcion,
       monto: montoNum,
       fecha,
-      recibido: false,
     });
 
     setDescripcion("");
     setMonto("");
-    setFecha("");
+    setFecha(new Date().toISOString().split("T")[0]);
   };
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6">
-      <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">Registrar ingreso</h2>
+    <form
+      onSubmit={handleSubmit}
+      className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6"
+    >
+      <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
+        Registrar ingreso
+      </h2>
 
       <div className="mb-2">
-        <label className="block text-sm text-gray-700 dark:text-gray-300">Descripción</label>
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Descripción
+        </label>
         <input
           type="text"
           value={descripcion}
@@ -38,7 +46,9 @@ export default function IngresoForm({ onAgregarIngreso }) {
       </div>
 
       <div className="mb-2">
-        <label className="block text-sm text-gray-700 dark:text-gray-300">Monto</label>
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Monto
+        </label>
         <input
           type="number"
           value={monto}
@@ -48,7 +58,9 @@ export default function IngresoForm({ onAgregarIngreso }) {
       </div>
 
       <div className="mb-2">
-        <label className="block text-sm text-gray-700 dark:text-gray-300">Fecha esperada</label>
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Fecha esperada
+        </label>
         <input
           type="date"
           value={fecha}

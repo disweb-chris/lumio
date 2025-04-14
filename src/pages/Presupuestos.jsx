@@ -1,86 +1,74 @@
 import { useState, useEffect } from "react";
-import { obtenerDeStorage, guardarEnStorage } from "../utils/storage";
+import {
+  collection,
+  onSnapshot,
+  addDoc,
+  deleteDoc,
+  updateDoc,
+  doc,
+} from "firebase/firestore";
+import { db } from "../firebase";
 import { formatearMoneda } from "../utils/format";
 import CategoriaForm from "../components/CategoriaForm";
 
 export default function Presupuestos() {
-  const [categorias, setCategorias] = useState(() =>
-    obtenerDeStorage("categorias", [])
-  );
-
-  const [gastos, setGastos] = useState(() =>
-    obtenerDeStorage("gastos", [])
-  );
-
+  const [categorias, setCategorias] = useState([]);
   const [editando, setEditando] = useState(null);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoPresupuesto, setNuevoPresupuesto] = useState("");
 
-  const guardarCambios = (index) => {
-    const nombreTrim = nuevoNombre.trim();
-    const presupuestoNum = parseFloat(nuevoPresupuesto);
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "categorias"), (snapshot) => {
+      const data = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setCategorias(data);
+    });
 
-    if (!nombreTrim || isNaN(presupuestoNum) || presupuestoNum <= 0) {
-      alert("Debes ingresar un nombre válido y un presupuesto mayor a 0.");
-      return;
+    return () => unsubscribe();
+  }, []);
+
+  const agregarCategoria = async (nueva) => {
+    try {
+      await addDoc(collection(db, "categorias"), nueva);
+    } catch (error) {
+      alert("Error al agregar categoría");
+      console.error(error);
     }
-
-    const nombreAnterior = categorias[index].nombre;
-
-    if (
-      nombreTrim !== nombreAnterior &&
-      categorias.some((cat) => cat.nombre.toLowerCase() === nombreTrim.toLowerCase())
-    ) {
-      alert("Ya existe una categoría con ese nombre.");
-      return;
-    }
-
-    const actualizado = [...categorias];
-    actualizado[index].nombre = nombreTrim;
-    actualizado[index].presupuesto = presupuestoNum;
-    setCategorias(actualizado);
-    guardarEnStorage("categorias", actualizado);
-
-    if (nombreAnterior !== nombreTrim) {
-      const gastosActualizados = gastos.map((g) =>
-        g.categoria === nombreAnterior
-          ? { ...g, categoria: nombreTrim }
-          : g
-      );
-      setGastos(gastosActualizados);
-      guardarEnStorage("gastos", gastosActualizados);
-    }
-
-    setEditando(null);
-    setNuevoNombre("");
-    setNuevoPresupuesto("");
   };
 
-  const eliminarCategoria = (index) => {
-    const categoria = categorias[index];
-    const tieneGastos = gastos.some((g) => g.categoria === categoria.nombre);
-    if (tieneGastos) {
-      alert("No se puede eliminar una categoría con gastos asociados.");
+  const guardarCambios = async (id) => {
+    const nombre = nuevoNombre.trim();
+    const presupuesto = parseFloat(nuevoPresupuesto);
+
+    if (!nombre || isNaN(presupuesto) || presupuesto <= 0) {
+      alert("Datos inválidos.");
       return;
     }
 
-    const confirmado = window.confirm(`¿Eliminar la categoría "${categoria.nombre}"?`);
+    try {
+      await updateDoc(doc(db, "categorias", id), {
+        nombre,
+        presupuesto,
+      });
+      setEditando(null);
+      setNuevoNombre("");
+      setNuevoPresupuesto("");
+    } catch (error) {
+      console.error("❌ Error al actualizar categoría:", error);
+    }
+  };
+
+  const eliminarCategoria = async (id) => {
+    const confirmado = window.confirm("¿Eliminar esta categoría?");
     if (!confirmado) return;
 
-    const actualizadas = categorias.filter((_, i) => i !== index);
-    setCategorias(actualizadas);
-    guardarEnStorage("categorias", actualizadas);
-  };
-
-  const agregarCategoria = (nueva) => {
-    const yaExiste = categorias.some(
-      (c) => c.nombre.toLowerCase() === nueva.nombre.toLowerCase()
-    );
-    if (yaExiste) return alert("Ya existe una categoría con ese nombre.");
-
-    const actualizadas = [...categorias, nueva];
-    setCategorias(actualizadas);
-    guardarEnStorage("categorias", actualizadas);
+    try {
+      await deleteDoc(doc(db, "categorias", id));
+    } catch (error) {
+      console.error("❌ Error al eliminar categoría:", error);
+    }
   };
 
   return (
@@ -92,12 +80,12 @@ export default function Presupuestos() {
       <CategoriaForm onAgregar={agregarCategoria} />
 
       <ul className="space-y-3 mt-4">
-        {categorias.map((cat, index) => (
+        {categorias.map((cat) => (
           <li
-            key={index}
+            key={cat.id}
             className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-center"
           >
-            {editando === index ? (
+            {editando === cat.id ? (
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full gap-3">
                 <div className="flex flex-col sm:flex-row gap-2 w-full">
                   <input
@@ -117,7 +105,7 @@ export default function Presupuestos() {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => guardarCambios(index)}
+                    onClick={() => guardarCambios(cat.id)}
                     className="bg-green-600 text-white px-3 py-1 rounded"
                   >
                     Guardar
@@ -141,7 +129,7 @@ export default function Presupuestos() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
-                      setEditando(index);
+                      setEditando(cat.id);
                       setNuevoNombre(cat.nombre);
                       setNuevoPresupuesto(cat.presupuesto);
                     }}
@@ -150,9 +138,8 @@ export default function Presupuestos() {
                     Editar
                   </button>
                   <button
-                    onClick={() => eliminarCategoria(index)}
+                    onClick={() => eliminarCategoria(cat.id)}
                     className="bg-white text-red-600 border px-3 py-1 rounded hover:bg-gray-200"
-                    title="Eliminar categoría"
                   >
                     🗑
                   </button>

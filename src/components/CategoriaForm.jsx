@@ -6,12 +6,15 @@ export default function CategoriaForm({ onAgregar }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!nombre || !presupuesto) return alert("Completa ambos campos");
+
+    if (!nombre || !presupuesto || parseFloat(presupuesto) <= 0) {
+      alert("Completa todos los campos correctamente");
+      return;
+    }
 
     onAgregar({
-      nombre,
-      presupuesto: parseInt(presupuesto),
-      gastado: 0,
+      nombre: nombre.trim(),
+      presupuesto: parseFloat(presupuesto),
     });
 
     setNombre("");
@@ -21,23 +24,28 @@ export default function CategoriaForm({ onAgregar }) {
   return (
     <form
       onSubmit={handleSubmit}
-      className="bg-white dark:bg-gray-800 p-4 rounded shadow mb-6 space-y-3"
+      className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6"
     >
-      <h2 className="text-lg font-semibold dark:text-white">Nueva categoría</h2>
+      <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
+        Nueva categoría
+      </h2>
+
       <input
         type="text"
-        placeholder="Nombre"
         value={nombre}
         onChange={(e) => setNombre(e.target.value)}
-        className="w-full px-3 py-2 rounded bg-gray-100 dark:bg-gray-700 text-black dark:text-white"
+        placeholder="Nombre"
+        className="w-full mb-2 p-2 rounded border dark:bg-gray-700 dark:text-white"
       />
+
       <input
         type="number"
-        placeholder="Presupuesto"
         value={presupuesto}
         onChange={(e) => setPresupuesto(e.target.value)}
-        className="w-full px-3 py-2 rounded bg-gray-100 dark:bg-gray-700 text-black dark:text-white"
+        placeholder="Presupuesto"
+        className="w-full mb-2 p-2 rounded border dark:bg-gray-700 dark:text-white"
       />
+
       <button
         type="submit"
         className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
