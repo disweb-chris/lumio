@@ -3,6 +3,8 @@ import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import CategoriaCard from "../components/CategoriaCard";
 import { formatearMoneda } from "../utils/format";
+import { obtenerCotizacionUSD } from "../utils/configuracion";
+import CotizacionDolar from "../components/CotizacionDolar";
 import dayjs from "dayjs";
 
 export default function Dashboard() {
@@ -10,6 +12,7 @@ export default function Dashboard() {
   const [gastos, setGastos] = useState([]);
   const [ingresos, setIngresos] = useState([]);
   const [vencimientos, setVencimientos] = useState([]);
+  const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
     const unsubCategorias = onSnapshot(collection(db, "categorias"), (snap) =>
@@ -24,9 +27,15 @@ export default function Dashboard() {
       setIngresos(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
     );
 
-    const unsubVencimientos = onSnapshot(collection(db, "vencimientos"), (snap) =>
-      setVencimientos(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
+    const unsubVencimientos = onSnapshot(
+      collection(db, "vencimientos"),
+      (snap) =>
+        setVencimientos(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })))
     );
+
+    obtenerCotizacionUSD().then((valor) => {
+      if (valor) setCotizacionUSD(valor);
+    });
 
     return () => {
       unsubCategorias();
@@ -56,22 +65,49 @@ export default function Dashboard() {
   const proximosVencimientos = vencimientos.filter((v) => {
     const hoy = dayjs();
     const fechaVenc = dayjs(v.fecha?.toDate ? v.fecha.toDate() : v.fecha);
-    return !v.pagado && fechaVenc.diff(hoy, "day") <= 3 && fechaVenc.diff(hoy, "day") >= 0;
+    return (
+      !v.pagado &&
+      fechaVenc.diff(hoy, "day") <= 3 &&
+      fechaVenc.diff(hoy, "day") >= 0
+    );
   });
 
   const acciones = [
-    ...gastos.map((g) => ({ tipo: "Gasto", descripcion: g.descripcion, fecha: g.fecha })),
+    ...gastos.map((g) => ({
+      tipo: "Gasto",
+      descripcion: g.descripcion,
+      fecha: g.fecha,
+    })),
     ...ingresos
       .filter((i) => i.recibido)
-      .map((i) => ({ tipo: "Ingreso", descripcion: i.descripcion, fecha: i.fecha })),
+      .map((i) => ({
+        tipo: "Ingreso",
+        descripcion: i.descripcion,
+        fecha: i.fecha,
+      })),
     ...vencimientos
       .filter((v) => v.pagado)
-      .map((v) => ({ tipo: "Pago", descripcion: v.descripcion, fecha: v.fecha })),
+      .map((v) => ({
+        tipo: "Pago",
+        descripcion: v.descripcion,
+        fecha: v.fecha,
+      })),
   ];
 
   const recientes = acciones
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
     .slice(0, 5);
+
+  const gastosPorCategoria = gastos.reduce((acc, g) => {
+    if (!acc[g.categoria]) acc[g.categoria] = 0;
+    acc[g.categoria] += g.monto;
+    return acc;
+  }, {});
+
+  const mostrarARSyUSD = (monto) => {
+    const enUSD = (monto / cotizacionUSD).toFixed(2);
+    return `$${formatearMoneda(monto)} ARS / u$d ${enUSD}`;
+  };
 
   return (
     <div>
@@ -88,7 +124,7 @@ export default function Dashboard() {
             dineroDisponible < 0 ? "text-red-500" : "text-green-500"
           }`}
         >
-          ${formatearMoneda(dineroDisponible)}
+          {mostrarARSyUSD(dineroDisponible)}
         </p>
       </div>
 
@@ -96,7 +132,7 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">Ingresos pendientes</p>
           <p className="text-xl font-bold text-yellow-400">
-            ${formatearMoneda(totalPendiente)}
+            {mostrarARSyUSD(totalPendiente)}
           </p>
           <p className="text-xs text-gray-500 mt-1">
             {ingresosPendientes.length} ingreso(s)
@@ -106,7 +142,7 @@ export default function Dashboard() {
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">Vencimientos pendientes</p>
           <p className="text-xl font-bold text-red-500">
-            ${formatearMoneda(totalVencimientosPendientes)}
+            {mostrarARSyUSD(totalVencimientosPendientes)}
           </p>
           <p className="text-xs text-gray-500 mt-1">
             {vencimientosPendientes.length} vencimiento(s)
@@ -120,7 +156,9 @@ export default function Dashboard() {
           {recientes.map((item, i) => (
             <li key={i} className="text-sm text-gray-700 dark:text-gray-200">
               <span className="font-bold">{item.tipo}:</span> {item.descripcion} –{" "}
-              {new Date(item.fecha?.toDate ? item.fecha.toDate() : item.fecha).toLocaleDateString()}
+              {new Date(
+                item.fecha?.toDate ? item.fecha.toDate() : item.fecha
+              ).toLocaleDateString()}
             </li>
           ))}
         </ul>
@@ -128,9 +166,16 @@ export default function Dashboard() {
 
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 mt-6">
         {categorias.map((cat) => (
-          <CategoriaCard key={cat.id} {...cat} />
+          <CategoriaCard
+            key={cat.id}
+            nombre={cat.nombre}
+            presupuesto={cat.presupuesto}
+            gastado={gastosPorCategoria[cat.nombre] || 0}
+          />
         ))}
       </div>
+
+      <CotizacionDolar />
     </div>
   );
 }

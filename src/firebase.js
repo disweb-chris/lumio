@@ -9,7 +9,7 @@ const firebaseConfig = {
   storageBucket: "lumio-6651c.firebasestorage.app",
   messagingSenderId: "281410343977",
   appId: "1:281410343977:web:8e501ce0d5b4e041573838",
-  measurementId: "G-RBRLJ4EM2B"
+  measurementId: "G-RBRLJ4EM2B",
 };
 
 const app = initializeApp(firebaseConfig);
