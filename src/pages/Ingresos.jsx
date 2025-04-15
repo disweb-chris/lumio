@@ -8,15 +8,17 @@ import {
   deleteDoc,
   Timestamp,
   query,
-  orderBy
+  orderBy,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { formatearMoneda } from "../utils/format";
 import IngresoForm from "../components/IngresoForm";
+import { obtenerCotizacionUSD } from "../utils/configuracion";
 import dayjs from "dayjs";
 
 export default function Ingresos() {
   const [ingresos, setIngresos] = useState([]);
+  const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
     const q = query(collection(db, "ingresos"), orderBy("fecha", "desc"));
@@ -26,6 +28,10 @@ export default function Ingresos() {
         ...doc.data(),
       }));
       setIngresos(data);
+    });
+
+    obtenerCotizacionUSD().then((valor) => {
+      if (valor) setCotizacionUSD(valor);
     });
 
     return () => unsubscribe();
@@ -93,7 +99,7 @@ export default function Ingresos() {
         </div>
       </div>
 
-      <IngresoForm onAgregarIngreso={agregarIngreso} />
+      <IngresoForm onAgregarIngreso={agregarIngreso} cotizacionUSD={cotizacionUSD} />
 
       <h3 className="text-lg font-semibold mt-6 mb-2 text-gray-800 dark:text-white">
         Lista de ingresos

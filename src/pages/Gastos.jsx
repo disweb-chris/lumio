@@ -12,20 +12,25 @@ import { formatearMoneda } from "../utils/format";
 import dayjs from "dayjs";
 import FiltroMes from "../components/FiltroMes";
 import GastoForm from "../components/GastoForm";
+import { obtenerCotizacionUSD } from "../utils/configuracion";
 
 export default function Gastos() {
   const [gastos, setGastos] = useState([]);
   const [gastosFiltrados, setGastosFiltrados] = useState([]);
+  const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
     const q = query(collection(db, "gastos"), orderBy("fecha", "desc"));
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       }));
       setGastos(data);
+    });
+
+    obtenerCotizacionUSD().then((valor) => {
+      if (valor) setCotizacionUSD(valor);
     });
 
     return () => unsubscribe();
@@ -43,13 +48,18 @@ export default function Gastos() {
     }
   };
 
+  const mostrarARSyUSD = (monto) => {
+    const usd = (monto / cotizacionUSD).toFixed(2);
+    return `${formatearMoneda(monto)} ARS / u$d ${usd}`;
+  };
+
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">
         Historial de gastos
       </h2>
 
-      <GastoForm />
+      <GastoForm cotizacionUSD={cotizacionUSD} />
 
       <FiltroMes items={gastos} onFiltrar={setGastosFiltrados} />
 
@@ -75,9 +85,9 @@ export default function Gastos() {
                   ).format("DD/MM/YYYY")}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
-                <p className="text-xl font-bold text-red-500">
-                  - ${formatearMoneda(gasto.monto)}
+              <div className="flex items-center gap-3 text-right">
+                <p className="text-sm font-semibold text-red-500">
+                  {mostrarARSyUSD(gasto.monto)}
                 </p>
                 <button
                   onClick={() => eliminarGasto(gasto.id)}

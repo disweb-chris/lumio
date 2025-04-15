@@ -9,10 +9,11 @@ import {
   orderBy,
 } from "firebase/firestore";
 
-export default function GastoForm() {
+export default function GastoForm({ cotizacionUSD }) {
   const [categoria, setCategoria] = useState("");
   const [categorias, setCategorias] = useState([]);
-  const [monto, setMonto] = useState("");
+  const [montoARS, setMontoARS] = useState("");
+  const [montoUSD, setMontoUSD] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [fecha, setFecha] = useState(() => {
     const hoy = new Date().toISOString().split("T")[0];
@@ -37,7 +38,7 @@ export default function GastoForm() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const montoNum = parseFloat(monto);
+    const montoNum = parseFloat(montoARS);
     if (!montoNum || montoNum <= 0 || !categoria) return;
 
     try {
@@ -53,9 +54,30 @@ export default function GastoForm() {
       console.error("❌ Error al guardar en Firebase:", error);
     }
 
-    setMonto("");
+    setMontoARS("");
+    setMontoUSD("");
     setDescripcion("");
     setFecha(new Date().toISOString().split("T")[0]);
+  };
+
+  const actualizarDesdeARS = (valor) => {
+    setMontoARS(valor);
+    const num = parseFloat(valor);
+    if (!isNaN(num) && cotizacionUSD > 0) {
+      setMontoUSD((num / cotizacionUSD).toFixed(2));
+    } else {
+      setMontoUSD("");
+    }
+  };
+
+  const actualizarDesdeUSD = (valor) => {
+    setMontoUSD(valor);
+    const num = parseFloat(valor);
+    if (!isNaN(num) && cotizacionUSD > 0) {
+      setMontoARS((num * cotizacionUSD).toFixed(2));
+    } else {
+      setMontoARS("");
+    }
   };
 
   return (
@@ -99,17 +121,31 @@ export default function GastoForm() {
         </select>
       </div>
 
-      {/* Monto */}
+      {/* Monto en ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
-          Monto
+          Monto en ARS
         </label>
         <input
           type="number"
           className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
-          value={monto}
-          onChange={(e) => setMonto(e.target.value)}
+          value={montoARS}
+          onChange={(e) => actualizarDesdeARS(e.target.value)}
           placeholder="Ej: 1500"
+        />
+      </div>
+
+      {/* Monto en USD */}
+      <div className="mb-2">
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Monto en USD
+        </label>
+        <input
+          type="number"
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+          value={montoUSD}
+          onChange={(e) => actualizarDesdeUSD(e.target.value)}
+          placeholder="Ej: 10"
         />
       </div>
 

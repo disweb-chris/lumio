@@ -54,7 +54,10 @@ export default function Dashboard() {
   const dineroDisponible = totalIngresos - totalGastos;
 
   const ingresosPendientes = ingresos.filter((i) => !i.recibido);
-  const totalPendiente = ingresosPendientes.reduce((acc, i) => acc + i.monto, 0);
+  const totalPendiente = ingresosPendientes.reduce(
+    (acc, i) => acc + i.monto,
+    0
+  );
 
   const vencimientosPendientes = vencimientos.filter((v) => !v.pagado);
   const totalVencimientosPendientes = vencimientosPendientes.reduce(
@@ -106,19 +109,22 @@ export default function Dashboard() {
 
   const mostrarARSyUSD = (monto) => {
     const enUSD = (monto / cotizacionUSD).toFixed(2);
-    return `$${formatearMoneda(monto)} ARS / u$d ${enUSD}`;
+    return `${formatearMoneda(monto)} ARS / u$d ${enUSD}`;
   };
 
   return (
     <div>
       {proximosVencimientos.length > 0 && (
         <div className="mb-4 p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded">
-          ⚠️ Tienes {proximosVencimientos.length} pago(s) por vencer en los próximos días.
+          ⚠️ Tienes {proximosVencimientos.length} pago(s) por vencer en los
+          próximos días.
         </div>
       )}
 
       <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow text-center mb-6">
-        <p className="text-gray-500 dark:text-gray-300 text-sm">Dinero disponible</p>
+        <p className="text-gray-500 dark:text-gray-300 text-sm">
+          Dinero disponible
+        </p>
         <p
           className={`text-3xl font-bold ${
             dineroDisponible < 0 ? "text-red-500" : "text-green-500"
@@ -130,7 +136,9 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-300">Ingresos pendientes</p>
+          <p className="text-sm text-gray-500 dark:text-gray-300">
+            Ingresos pendientes
+          </p>
           <p className="text-xl font-bold text-yellow-400">
             {mostrarARSyUSD(totalPendiente)}
           </p>
@@ -140,7 +148,9 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
-          <p className="text-sm text-gray-500 dark:text-gray-300">Vencimientos pendientes</p>
+          <p className="text-sm text-gray-500 dark:text-gray-300">
+            Vencimientos pendientes
+          </p>
           <p className="text-xl font-bold text-red-500">
             {mostrarARSyUSD(totalVencimientosPendientes)}
           </p>
@@ -151,11 +161,14 @@ export default function Dashboard() {
       </div>
 
       <div className="mt-6 bg-white dark:bg-gray-800 p-4 rounded shadow">
-        <h3 className="text-lg font-bold mb-2 text-gray-800 dark:text-white">Actividad reciente</h3>
+        <h3 className="text-lg font-bold mb-2 text-gray-800 dark:text-white">
+          Actividad reciente
+        </h3>
         <ul className="space-y-2">
           {recientes.map((item, i) => (
             <li key={i} className="text-sm text-gray-700 dark:text-gray-200">
-              <span className="font-bold">{item.tipo}:</span> {item.descripcion} –{" "}
+              <span className="font-bold">{item.tipo}:</span> {item.descripcion}{" "}
+              –{" "}
               {new Date(
                 item.fecha?.toDate ? item.fecha.toDate() : item.fecha
               ).toLocaleDateString()}

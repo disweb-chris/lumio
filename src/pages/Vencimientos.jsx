@@ -14,9 +14,11 @@ import { db } from "../firebase";
 import VencimientoForm from "../components/VencimientoForm";
 import { formatearMoneda } from "../utils/format";
 import AlertaVencimiento from "../components/AlertaVencimiento";
+import { obtenerCotizacionUSD } from "../utils/configuracion";
 
 export default function Vencimientos() {
   const [vencimientos, setVencimientos] = useState([]);
+  const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
     const q = query(collection(db, "vencimientos"), orderBy("fecha", "asc"));
@@ -26,6 +28,10 @@ export default function Vencimientos() {
         ...doc.data(),
       }));
       setVencimientos(data);
+    });
+
+    obtenerCotizacionUSD().then((valor) => {
+      if (valor) setCotizacionUSD(valor);
     });
 
     return () => unsubscribe();
@@ -47,12 +53,10 @@ export default function Vencimientos() {
     try {
       const nuevoEstado = !actual;
 
-      // DESMARCAR → ELIMINAR gasto asociado
       if (!nuevoEstado && vencimiento.idGasto) {
         await deleteDoc(doc(db, "gastos", vencimiento.idGasto));
       }
 
-      // MARCAR COMO PAGADO → CREAR gasto
       if (nuevoEstado) {
         const docRef = await addDoc(collection(db, "gastos"), {
           categoria: "Vencimientos",
@@ -67,7 +71,6 @@ export default function Vencimientos() {
           idGasto: docRef.id,
         });
       } else {
-        // desmarcado: quitar idGasto y marcar como no pagado
         await updateDoc(doc(db, "vencimientos", id), {
           pagado: false,
           idGasto: null,
@@ -89,9 +92,14 @@ export default function Vencimientos() {
     }
   };
 
+  const mostrarARSyUSD = (monto) => {
+    const usd = (monto / cotizacionUSD).toFixed(2);
+    return `${formatearMoneda(monto)} ARS / u$d ${usd}`;
+  };
+
   return (
     <div>
-      <VencimientoForm onAgregar={agregarVencimiento} />
+      <VencimientoForm onAgregar={agregarVencimiento} cotizacionUSD={cotizacionUSD} />
 
       <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
         Pagos con vencimiento
@@ -112,7 +120,7 @@ export default function Vencimientos() {
                   : item.fecha}
               </p>
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                Monto: ${formatearMoneda(item.monto)}
+                Monto: {mostrarARSyUSD(item.monto)}
               </p>
             </div>
             <div className="flex gap-2 flex-wrap justify-end">

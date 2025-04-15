@@ -10,12 +10,14 @@ import {
 import { db } from "../firebase";
 import { formatearMoneda } from "../utils/format";
 import CategoriaForm from "../components/CategoriaForm";
+import { obtenerCotizacionUSD } from "../utils/configuracion";
 
 export default function Presupuestos() {
   const [categorias, setCategorias] = useState([]);
   const [editando, setEditando] = useState(null);
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoPresupuesto, setNuevoPresupuesto] = useState("");
+  const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "categorias"), (snapshot) => {
@@ -24,6 +26,10 @@ export default function Presupuestos() {
         ...doc.data(),
       }));
       setCategorias(data);
+    });
+
+    obtenerCotizacionUSD().then((valor) => {
+      if (valor) setCotizacionUSD(valor);
     });
 
     return () => unsubscribe();
@@ -69,6 +75,11 @@ export default function Presupuestos() {
     } catch (error) {
       console.error("❌ Error al eliminar categoría:", error);
     }
+  };
+
+  const mostrarARSyUSD = (monto) => {
+    const usd = (monto / cotizacionUSD).toFixed(2);
+    return `${formatearMoneda(monto)} ARS / u$d ${usd}`;
   };
 
   return (
@@ -123,7 +134,7 @@ export default function Presupuestos() {
                 <div>
                   <p className="text-lg font-semibold">{cat.nombre}</p>
                   <p className="text-sm text-gray-600 dark:text-gray-300">
-                    Presupuesto actual: ${formatearMoneda(cat.presupuesto)}
+                    Presupuesto actual: {mostrarARSyUSD(cat.presupuesto)}
                   </p>
                 </div>
                 <div className="flex gap-2">

@@ -17,6 +17,7 @@ import { collection, onSnapshot } from "firebase/firestore";
 import dayjs from "dayjs";
 import FiltroMes from "../components/FiltroMes";
 import { formatearMoneda } from "../utils/format";
+import { obtenerCotizacionUSD } from "../utils/configuracion";
 
 const COLORS = [
   "#4F46E5",
@@ -30,6 +31,7 @@ const COLORS = [
 export default function Informe() {
   const [gastos, setGastos] = useState([]);
   const [gastosFiltrados, setGastosFiltrados] = useState([]);
+  const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "gastos"), (snap) => {
@@ -39,8 +41,18 @@ export default function Informe() {
       }));
       setGastos(data);
     });
+
+    obtenerCotizacionUSD().then((valor) => {
+      if (valor) setCotizacionUSD(valor);
+    });
+
     return () => unsub();
   }, []);
+
+  const mostrarARSyUSD = (monto) => {
+    const enUSD = (monto / cotizacionUSD).toFixed(2);
+    return `${formatearMoneda(monto)} ARS / u$d ${enUSD}`;
+  };
 
   const gastosPorCategoria = gastosFiltrados.reduce((acc, gasto) => {
     if (!acc[gasto.categoria]) acc[gasto.categoria] = 0;
@@ -99,7 +111,7 @@ export default function Informe() {
                   <Cell key={index} fill={COLORS[index % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => `$${value.toLocaleString("es-AR")}`} />
+              <Tooltip formatter={(value) => mostrarARSyUSD(value)} />
             </PieChart>
           </ResponsiveContainer>
         </div>
@@ -115,7 +127,7 @@ export default function Informe() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="mes" />
               <YAxis />
-              <Tooltip formatter={(value) => `$${formatearMoneda(value)}`} />
+              <Tooltip formatter={(value) => mostrarARSyUSD(value)} />
               <Legend />
               <Line type="monotone" dataKey="total" stroke="#4F46E5" name="Gastos" />
             </LineChart>
@@ -140,7 +152,7 @@ export default function Informe() {
               {data.map((item, i) => (
                 <tr key={i} className="border-t border-gray-300 dark:border-gray-600">
                   <td className="px-4 py-2">{item.name}</td>
-                  <td className="px-4 py-2">${formatearMoneda(item.value)}</td>
+                  <td className="px-4 py-2">{mostrarARSyUSD(item.value)}</td>
                   <td className="px-4 py-2">
                     {((item.value / total) * 100).toFixed(1)}%
                   </td>
