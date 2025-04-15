@@ -4,7 +4,7 @@ import { db } from "../firebase";
 import CategoriaCard from "../components/CategoriaCard";
 import { formatearMoneda } from "../utils/format";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
-import CotizacionDolar from "../components/CotizacionDolar";
+import CotizacionDolarModal from "../components/CotizacionDolarModal";
 import dayjs from "dayjs";
 
 export default function Dashboard() {
@@ -175,7 +175,7 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <CotizacionDolar />
+      <CotizacionDolarModal />
     </div>
   );
 }
