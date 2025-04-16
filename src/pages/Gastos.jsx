@@ -84,10 +84,15 @@ export default function Gastos() {
                     gasto.fecha?.toDate ? gasto.fecha.toDate() : gasto.fecha
                   ).format("DD/MM/YYYY")}
                 </p>
+                {gasto.metodoPago && (
+                  <p className="text-sm text-gray-500 mt-1">
+                    Método de pago: {gasto.metodoPago}
+                  </p>
+                )}
               </div>
-              <div className="flex items-center gap-3 text-right">
-                <p className="text-sm font-semibold text-red-500">
-                  {mostrarARSyUSD(gasto.monto)}
+              <div className="flex items-center gap-3">
+                <p className="text-xl font-bold text-red-500">
+                  - ${formatearMoneda(gasto.monto)}
                 </p>
                 <button
                   onClick={() => eliminarGasto(gasto.id)}

@@ -53,11 +53,20 @@ export default function Dashboard() {
 
   const dineroDisponible = totalIngresos - totalGastos;
 
-  const ingresosPendientes = ingresos.filter((i) => !i.recibido);
-  const totalPendiente = ingresosPendientes.reduce(
-    (acc, i) => acc + i.monto,
-    0
-  );
+  const ingresosPendientes = ingresos.filter((i) => {
+    if (i.dividido) {
+      return !i.recibido1 || !i.recibido2;
+    }
+    return !i.recibido1;
+  });
+  
+  const totalPendiente = ingresosPendientes.reduce((acc, i) => {
+    const recibido =
+      (i.recibido1 ? i.monto1 || i.montoTotal / 2 : 0) +
+      (i.recibido2 ? i.monto2 || i.montoTotal / 2 : 0);
+    return acc + (i.montoTotal - recibido);
+  }, 0);
+  
 
   const vencimientosPendientes = vencimientos.filter((v) => !v.pagado);
   const totalVencimientosPendientes = vencimientosPendientes.reduce(

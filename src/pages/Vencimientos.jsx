@@ -62,6 +62,7 @@ export default function Vencimientos() {
           categoria: "Vencimientos",
           descripcion: vencimiento.descripcion,
           monto: vencimiento.monto,
+          metodoPago: vencimiento.metodoPago || "Sin especificar",
           fecha: vencimiento.fecha,
           timestamp: Timestamp.now(),
         });
@@ -70,6 +71,27 @@ export default function Vencimientos() {
           pagado: true,
           idGasto: docRef.id,
         });
+
+        if (vencimiento.recurrente) {
+          const fechaActual = vencimiento.fecha?.toDate
+            ? vencimiento.fecha.toDate()
+            : new Date(vencimiento.fecha);
+
+          const fechaProxima = new Date(
+            fechaActual.getFullYear(),
+            fechaActual.getMonth() + 1,
+            fechaActual.getDate()
+          );
+
+          await addDoc(collection(db, "vencimientos"), {
+            descripcion: vencimiento.descripcion,
+            monto: vencimiento.monto,
+            metodoPago: vencimiento.metodoPago || "Sin especificar",
+            pagado: false,
+            recurrente: true,
+            fecha: Timestamp.fromDate(fechaProxima),
+          });
+        }
       } else {
         await updateDoc(doc(db, "vencimientos", id), {
           pagado: false,
@@ -77,7 +99,7 @@ export default function Vencimientos() {
         });
       }
     } catch (error) {
-      console.error("❌ Error al cambiar estado de pago:", error);
+      console.error("❌ Error al actualizar vencimiento:", error);
     }
   };
 
@@ -92,14 +114,12 @@ export default function Vencimientos() {
     }
   };
 
-  const mostrarARSyUSD = (monto) => {
-    const usd = (monto / cotizacionUSD).toFixed(2);
-    return `${formatearMoneda(monto)} ARS / u$d ${usd}`;
-  };
-
   return (
     <div>
-      <VencimientoForm onAgregar={agregarVencimiento} cotizacionUSD={cotizacionUSD} />
+      <VencimientoForm
+        onAgregar={agregarVencimiento}
+        cotizacionUSD={cotizacionUSD}
+      />
 
       <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
         Pagos con vencimiento
@@ -119,9 +139,19 @@ export default function Vencimientos() {
                   ? item.fecha.toDate().toLocaleDateString()
                   : item.fecha}
               </p>
+              {item.metodoPago && (
+                <p className="text-sm text-gray-500">
+                  Método de pago: {item.metodoPago}
+                </p>
+              )}
               <p className="text-sm text-gray-600 dark:text-gray-300">
-                Monto: {mostrarARSyUSD(item.monto)}
+                Monto: ${formatearMoneda(item.monto)}
               </p>
+              {item.recurrente && (
+                <span className="text-xs text-purple-500 font-semibold block mt-1">
+                  🔁 Recurrente mensual
+                </span>
+              )}
             </div>
             <div className="flex gap-2 flex-wrap justify-end">
               <AlertaVencimiento fecha={item.fecha} pagado={item.pagado} />
@@ -131,7 +161,6 @@ export default function Vencimientos() {
               >
                 {item.pagado ? "Desmarcar" : "Marcar pagado"}
               </button>
-
               <button
                 onClick={() => eliminarVencimiento(item.id)}
                 className="text-sm px-2 py-1 rounded bg-white text-red-600 hover:bg-gray-200 border"

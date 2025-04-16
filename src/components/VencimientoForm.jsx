@@ -1,32 +1,23 @@
 import { useState } from "react";
 
-export default function VencimientoForm({ onAgregar, cotizacionUSD }) {
+export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
   const [descripcion, setDescripcion] = useState("");
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
   const [fecha, setFecha] = useState(() =>
     new Date().toISOString().split("T")[0]
   );
+  const [metodoPago, setMetodoPago] = useState("Efectivo");
+  const [subMetodo, setSubMetodo] = useState("");
+  const [recurrente, setRecurrente] = useState(false);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-
-    if (!descripcion || !montoARS || !fecha) {
-      alert("Completa todos los campos.");
-      return;
-    }
-
-    onAgregar({
-      descripcion,
-      monto: parseFloat(montoARS),
-      fecha,
-    });
-
-    setDescripcion("");
-    setMontoARS("");
-    setMontoUSD("");
-    setFecha(new Date().toISOString().split("T")[0]);
-  };
+  const subOpcionesTarjeta = [
+    "Ualá Emma",
+    "Ualá Chris",
+    "Naranja X",
+    "Visa Santander",
+    "Amex Santander",
+  ];
 
   const actualizarDesdeARS = (valor) => {
     setMontoARS(valor);
@@ -48,6 +39,38 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD }) {
     }
   };
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+
+    const montoNum = parseFloat(montoARS);
+    if (!descripcion || !montoNum || !fecha) {
+      alert("Completa todos los campos.");
+      return;
+    }
+
+    const metodoFinal =
+      metodoPago === "Tarjeta de crédito" && subMetodo
+        ? `Tarjeta: ${subMetodo}`
+        : metodoPago;
+
+    onAgregar({
+      descripcion,
+      monto: montoNum,
+      fecha,
+      metodoPago: metodoFinal,
+      recurrente,
+    });
+
+    // Reset
+    setDescripcion("");
+    setMontoARS("");
+    setMontoUSD("");
+    setFecha(new Date().toISOString().split("T")[0]);
+    setMetodoPago("Efectivo");
+    setSubMetodo("");
+    setRecurrente(false);
+  };
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -57,6 +80,7 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD }) {
         Nuevo vencimiento
       </h2>
 
+      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
@@ -70,6 +94,7 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD }) {
         />
       </div>
 
+      {/* Monto en ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
@@ -79,10 +104,10 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD }) {
           value={montoARS}
           onChange={(e) => actualizarDesdeARS(e.target.value)}
           className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
-          placeholder="Ej: 80000"
         />
       </div>
 
+      {/* Monto en USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
@@ -92,10 +117,52 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD }) {
           value={montoUSD}
           onChange={(e) => actualizarDesdeUSD(e.target.value)}
           className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
-          placeholder="Ej: 100"
         />
       </div>
 
+      {/* Método de pago */}
+      <div className="mb-2">
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Método de pago
+        </label>
+        <select
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+          value={metodoPago}
+          onChange={(e) => {
+            setMetodoPago(e.target.value);
+            if (e.target.value !== "Tarjeta de crédito") {
+              setSubMetodo("");
+            }
+          }}
+        >
+          <option value="Efectivo">Efectivo</option>
+          <option value="Transferencia">Transferencia</option>
+          <option value="Mercado Pago">Mercado Pago</option>
+          <option value="Tarjeta de crédito">Tarjeta de crédito</option>
+        </select>
+      </div>
+
+      {metodoPago === "Tarjeta de crédito" && (
+        <div className="mb-2">
+          <label className="block text-sm text-gray-700 dark:text-gray-300">
+            Tarjeta utilizada
+          </label>
+          <select
+            className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+            value={subMetodo}
+            onChange={(e) => setSubMetodo(e.target.value)}
+          >
+            <option value="">Selecciona una tarjeta</option>
+            {subOpcionesTarjeta.map((op) => (
+              <option key={op} value={op}>
+                {op}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Fecha */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha límite
@@ -106,6 +173,23 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD }) {
           onChange={(e) => setFecha(e.target.value)}
           className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         />
+      </div>
+
+      {/* Recurrente */}
+      <div className="mb-4 flex items-center gap-2">
+        <input
+          id="recurrente"
+          type="checkbox"
+          checked={recurrente}
+          onChange={(e) => setRecurrente(e.target.checked)}
+          className="form-checkbox text-purple-600"
+        />
+        <label
+          htmlFor="recurrente"
+          className="text-sm text-gray-700 dark:text-gray-300"
+        >
+          Este vencimiento se repite todos los meses
+        </label>
       </div>
 
       <button

@@ -21,7 +21,7 @@ export default function Ingresos() {
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
-    const q = query(collection(db, "ingresos"), orderBy("fecha", "desc"));
+    const q = query(collection(db, "ingresos"), orderBy("fecha1", "desc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
         id: doc.id,
@@ -37,25 +37,43 @@ export default function Ingresos() {
     return () => unsubscribe();
   }, []);
 
+  const mostrarARSyUSD = (monto) => {
+    const num = parseFloat(monto || 0);
+    const usd = cotizacionUSD > 0 ? (num / cotizacionUSD).toFixed(2) : "0.00";
+    return `$${formatearMoneda(num)} ARS / u$d ${usd}`;
+  };
+
   const agregarIngreso = async (nuevo) => {
     try {
       await addDoc(collection(db, "ingresos"), {
         ...nuevo,
-        recibido: false,
-        fecha: Timestamp.fromDate(new Date(nuevo.fecha)),
+        fecha1: Timestamp.fromDate(new Date(nuevo.fecha1)),
+        fecha2: nuevo.fecha2 ? Timestamp.fromDate(new Date(nuevo.fecha2)) : null,
       });
     } catch (error) {
       console.error("❌ Error al agregar ingreso:", error);
     }
   };
 
-  const toggleRecibido = async (id, actual) => {
+  const togglePago = async (ingreso, parte) => {
     try {
-      await updateDoc(doc(db, "ingresos", id), {
-        recibido: !actual,
-      });
+      const nuevo = { ...ingreso };
+
+      if (parte === 1 && !ingreso.recibido1) {
+        nuevo.recibido1 = true;
+        nuevo.montoRecibido =
+          (nuevo.montoRecibido || 0) + (ingreso.monto1 || ingreso.montoTotal);
+      }
+
+      if (parte === 2 && !ingreso.recibido2) {
+        nuevo.recibido2 = true;
+        nuevo.montoRecibido =
+          (nuevo.montoRecibido || 0) + (ingreso.monto2 || ingreso.montoTotal / 2);
+      }
+
+      await updateDoc(doc(db, "ingresos", ingreso.id), nuevo);
     } catch (error) {
-      console.error("❌ Error al actualizar ingreso:", error);
+      console.error("❌ Error al registrar pago:", error);
     }
   };
 
@@ -70,10 +88,8 @@ export default function Ingresos() {
     }
   };
 
-  const totalEsperado = ingresos.reduce((acc, i) => acc + i.monto, 0);
-  const totalRecibido = ingresos
-    .filter((i) => i.recibido)
-    .reduce((acc, i) => acc + i.monto, 0);
+  const totalEsperado = ingresos.reduce((acc, i) => acc + (i.montoTotal || 0), 0);
+  const totalRecibido = ingresos.reduce((acc, i) => acc + (i.montoRecibido || 0), 0);
   const pendiente = totalEsperado - totalRecibido;
 
   return (
@@ -81,20 +97,20 @@ export default function Ingresos() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">Total esperado</p>
-          <p className="text-2xl font-bold text-blue-400">
-            ${formatearMoneda(totalEsperado)}
+          <p className="text-lg font-bold text-blue-400">
+            {mostrarARSyUSD(totalEsperado)}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">Total recibido</p>
-          <p className="text-2xl font-bold text-green-500">
-            ${formatearMoneda(totalRecibido)}
+          <p className="text-lg font-bold text-green-500">
+            {mostrarARSyUSD(totalRecibido)}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">Pendiente de cobro</p>
-          <p className="text-2xl font-bold text-yellow-400">
-            ${formatearMoneda(pendiente)}
+          <p className="text-lg font-bold text-yellow-400">
+            {mostrarARSyUSD(pendiente)}
           </p>
         </div>
       </div>
@@ -109,38 +125,62 @@ export default function Ingresos() {
         {ingresos.map((ingreso) => (
           <li
             key={ingreso.id}
-            className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-center"
+            className="p-4 bg-white dark:bg-gray-800 rounded shadow"
           >
-            <div>
-              <p className="text-lg font-semibold">{ingreso.descripcion}</p>
-              <p className="text-sm text-gray-500">
-                {dayjs(
-                  ingreso.fecha?.toDate
-                    ? ingreso.fecha.toDate()
-                    : ingreso.fecha
-                ).format("DD/MM/YYYY")}
-              </p>
-              <p className="text-sm">
-                Monto: ${formatearMoneda(ingreso.monto)}
-              </p>
-            </div>
-            <div className="flex gap-2 flex-wrap justify-end">
-              <button
-                onClick={() => toggleRecibido(ingreso.id, ingreso.recibido)}
-                className={`text-sm px-3 py-1 rounded font-semibold ${
-                  ingreso.recibido
-                    ? "bg-green-500 text-white"
-                    : "bg-blue-600 text-white"
-                }`}
-              >
-                {ingreso.recibido ? "Recibido" : "Marcar recibido"}
-              </button>
-              <button
-                onClick={() => eliminarIngreso(ingreso.id)}
-                className="text-sm px-2 py-1 rounded bg-white text-red-600 hover:bg-gray-200 border"
-              >
-                🗑
-              </button>
+            <div className="flex justify-between flex-wrap">
+              <div>
+                <p className="text-lg font-semibold">{ingreso.descripcion}</p>
+                <p className="text-sm text-gray-500">
+                  Monto total: {mostrarARSyUSD(ingreso.montoTotal)}
+                </p>
+                <p className="text-sm text-gray-500">
+                  Recibido: {mostrarARSyUSD(ingreso.montoRecibido || 0)}
+                </p>
+
+                {ingreso.dividido && (
+                  <>
+                    <p className="text-sm text-gray-400 mt-2">
+                      <strong>1º pago:</strong>{" "}
+                      {mostrarARSyUSD(ingreso.monto1 || ingreso.montoTotal / 2)} –{" "}
+                      {dayjs(ingreso.fecha1.toDate()).format("DD/MM/YYYY")} –{" "}
+                      {ingreso.recibido1 ? "✅" : "❌"}
+                    </p>
+                    <p className="text-sm text-gray-400">
+                      <strong>2º pago:</strong>{" "}
+                      {mostrarARSyUSD(ingreso.monto2 || ingreso.montoTotal / 2)} –{" "}
+                      {ingreso.fecha2
+                        ? dayjs(ingreso.fecha2.toDate()).format("DD/MM/YYYY")
+                        : "Sin fecha"}{" "}
+                      – {ingreso.recibido2 ? "✅" : "❌"}
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <div className="flex flex-col gap-2 items-end justify-center mt-4 sm:mt-0">
+                {!ingreso.recibido1 && (
+                  <button
+                    onClick={() => togglePago(ingreso, 1)}
+                    className="bg-blue-600 text-white px-3 py-1 rounded text-sm"
+                  >
+                    Registrar 1° pago
+                  </button>
+                )}
+                {ingreso.dividido && !ingreso.recibido2 && (
+                  <button
+                    onClick={() => togglePago(ingreso, 2)}
+                    className="bg-indigo-600 text-white px-3 py-1 rounded text-sm"
+                  >
+                    Registrar 2° pago
+                  </button>
+                )}
+                <button
+                  onClick={() => eliminarIngreso(ingreso.id)}
+                  className="text-red-600 border border-red-600 px-3 py-1 rounded text-sm hover:bg-red-50"
+                >
+                  🗑 Eliminar
+                </button>
+              </div>
             </div>
           </li>
         ))}

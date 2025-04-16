@@ -28,6 +28,14 @@ const COLORS = [
   "#8B5CF6",
 ];
 
+const subTarjetas = [
+  "Ualá Emma",
+  "Ualá Chris",
+  "Naranja X",
+  "Visa Santander",
+  "Amex Santander",
+];
+
 export default function Informe() {
   const [gastos, setGastos] = useState([]);
   const [gastosFiltrados, setGastosFiltrados] = useState([]);
@@ -80,6 +88,28 @@ export default function Informe() {
     total,
   }));
 
+  // 👉 Consumo por método de pago
+  const consumoPorMetodo = gastos.reduce((acc, gasto) => {
+    const metodo = gasto.metodoPago || "Sin especificar";
+    if (!acc[metodo]) acc[metodo] = 0;
+    acc[metodo] += gasto.monto;
+    return acc;
+  }, {});
+
+  // 👉 Desglose por tarjeta
+  const desglosePorTarjeta = {};
+
+  gastos.forEach((gasto) => {
+    const metodo = gasto.metodoPago || "";
+    if (metodo.startsWith("Tarjeta:")) {
+      const tarjeta = metodo.split(":")[1].trim();
+      if (!desglosePorTarjeta[tarjeta]) desglosePorTarjeta[tarjeta] = {};
+      const cat = gasto.categoria || "Sin categoría";
+      if (!desglosePorTarjeta[tarjeta][cat]) desglosePorTarjeta[tarjeta][cat] = 0;
+      desglosePorTarjeta[tarjeta][cat] += gasto.monto;
+    }
+  });
+
   return (
     <div className="p-4">
       <h2 className="text-2xl font-bold mb-4 text-gray-800 dark:text-white">
@@ -88,6 +118,7 @@ export default function Informe() {
 
       <FiltroMes items={gastos} onFiltrar={setGastosFiltrados} />
 
+      {/* GRÁFICO TORTA */}
       {total === 0 ? (
         <p className="text-gray-600 dark:text-gray-300">
           No hay gastos registrados para este mes.
@@ -117,6 +148,7 @@ export default function Informe() {
         </div>
       )}
 
+      {/* GRÁFICO DE LÍNEA */}
       {dataLineChart.length > 0 && (
         <div className="w-full h-80 mt-12">
           <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
@@ -129,12 +161,18 @@ export default function Informe() {
               <YAxis />
               <Tooltip formatter={(value) => mostrarARSyUSD(value)} />
               <Legend />
-              <Line type="monotone" dataKey="total" stroke="#4F46E5" name="Gastos" />
+              <Line
+                type="monotone"
+                dataKey="total"
+                stroke="#4F46E5"
+                name="Gastos"
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
       )}
 
+      {/* TABLA POR CATEGORÍA */}
       {data.length > 0 && (
         <div className="mt-12">
           <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
@@ -150,7 +188,10 @@ export default function Informe() {
             </thead>
             <tbody>
               {data.map((item, i) => (
-                <tr key={i} className="border-t border-gray-300 dark:border-gray-600">
+                <tr
+                  key={i}
+                  className="border-t border-gray-300 dark:border-gray-600"
+                >
                   <td className="px-4 py-2">{item.name}</td>
                   <td className="px-4 py-2">{mostrarARSyUSD(item.value)}</td>
                   <td className="px-4 py-2">
@@ -162,6 +203,35 @@ export default function Informe() {
           </table>
         </div>
       )}
+
+      {/* SECCIÓN: TARJETA DE CRÉDITO */}
+      <div className="mt-12">
+        <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
+          Tarjeta de crédito – Consumo por método de pago
+        </h3>
+        <ul className="space-y-1 mb-6">
+          {Object.entries(consumoPorMetodo).map(([metodo, monto], i) => (
+            <li key={i} className="text-sm text-gray-700 dark:text-gray-300">
+              {metodo}: {mostrarARSyUSD(monto)}
+            </li>
+          ))}
+        </ul>
+
+        {Object.entries(desglosePorTarjeta).map(([tarjeta, categorias], i) => (
+          <div key={i} className="mb-6">
+            <h4 className="text-lg font-bold text-purple-700 dark:text-purple-300">
+              💳 {tarjeta}
+            </h4>
+            <ul className="pl-4 mt-1 list-disc text-sm text-gray-700 dark:text-gray-300">
+              {Object.entries(categorias).map(([categoria, monto], j) => (
+                <li key={j}>
+                  {categoria}: {mostrarARSyUSD(monto)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
