@@ -37,10 +37,17 @@ export default function Ingresos() {
     return () => unsubscribe();
   }, []);
 
-  const mostrarARSyUSD = (monto) => {
+  const mostrarARSyUSD = (monto, moneda = "ARS") => {
     const num = parseFloat(monto || 0);
-    const usd = cotizacionUSD > 0 ? (num / cotizacionUSD).toFixed(2) : "0.00";
-    return `$${formatearMoneda(num)} ARS / u$d ${usd}`;
+    if (isNaN(num)) return "—";
+
+    if (moneda === "USD") {
+      const ars = cotizacionUSD > 0 ? num * cotizacionUSD : 0;
+      return `u$d ${num.toFixed(2)} / $${formatearMoneda(ars)} ARS`;
+    } else {
+      const usd = cotizacionUSD > 0 ? num / cotizacionUSD : 0;
+      return `$${formatearMoneda(num)} ARS / u$d ${usd.toFixed(2)}`;
+    }
   };
 
   const agregarIngreso = async (nuevo) => {
@@ -58,17 +65,35 @@ export default function Ingresos() {
   const togglePago = async (ingreso, parte) => {
     try {
       const nuevo = { ...ingreso };
+      const cotiz = await obtenerCotizacionUSD();
+
+      const getEnARS = (monto, moneda) =>
+        moneda === "USD" ? monto * cotiz : monto;
 
       if (parte === 1 && !ingreso.recibido1) {
         nuevo.recibido1 = true;
-        nuevo.montoRecibido =
-          (nuevo.montoRecibido || 0) + (ingreso.monto1 || ingreso.montoTotal);
+
+        const monto = ingreso.monto1 ?? ingreso.montoTotal;
+        const enARS = getEnARS(monto, ingreso.moneda || "ARS");
+
+        nuevo.montoRecibido = (nuevo.montoRecibido || 0) + enARS;
       }
 
       if (parte === 2 && !ingreso.recibido2) {
         nuevo.recibido2 = true;
-        nuevo.montoRecibido =
-          (nuevo.montoRecibido || 0) + (ingreso.monto2 || ingreso.montoTotal / 2);
+
+        const monto = ingreso.monto2 ?? ingreso.montoTotal / 2;
+        const enARS = getEnARS(monto, ingreso.moneda || "ARS");
+
+        nuevo.montoRecibido = (nuevo.montoRecibido || 0) + enARS;
+      }
+
+      // Si no está dividido y se registra completo (ej: desde botón único)
+      if (!ingreso.dividido && !ingreso.recibido1 && parte === 1) {
+        nuevo.recibido1 = true;
+        const monto = ingreso.montoTotal;
+        const enARS = getEnARS(monto, ingreso.moneda || "ARS");
+        nuevo.montoRecibido = enARS;
       }
 
       await updateDoc(doc(db, "ingresos", ingreso.id), nuevo);
@@ -88,8 +113,16 @@ export default function Ingresos() {
     }
   };
 
-  const totalEsperado = ingresos.reduce((acc, i) => acc + (i.montoTotal || 0), 0);
+  const totalEsperado = ingresos.reduce((acc, i) => {
+    const monto = i.montoTotal || 0;
+    if (i.moneda === "USD") {
+      return acc + monto * cotizacionUSD;
+    }
+    return acc + monto;
+  }, 0);
+
   const totalRecibido = ingresos.reduce((acc, i) => acc + (i.montoRecibido || 0), 0);
+
   const pendiente = totalEsperado - totalRecibido;
 
   return (
@@ -98,19 +131,19 @@ export default function Ingresos() {
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">Total esperado</p>
           <p className="text-lg font-bold text-blue-400">
-            {mostrarARSyUSD(totalEsperado)}
+            {mostrarARSyUSD(totalEsperado, "ARS")}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">Total recibido</p>
           <p className="text-lg font-bold text-green-500">
-            {mostrarARSyUSD(totalRecibido)}
+            {mostrarARSyUSD(totalRecibido, "ARS")}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">Pendiente de cobro</p>
           <p className="text-lg font-bold text-yellow-400">
-            {mostrarARSyUSD(pendiente)}
+            {mostrarARSyUSD(pendiente, "ARS")}
           </p>
         </div>
       </div>
@@ -130,24 +163,26 @@ export default function Ingresos() {
             <div className="flex justify-between flex-wrap">
               <div>
                 <p className="text-lg font-semibold">{ingreso.descripcion}</p>
+
                 <p className="text-sm text-gray-500">
-                  Monto total: {mostrarARSyUSD(ingreso.montoTotal)}
+                  Monto total: {mostrarARSyUSD(ingreso.montoTotal, ingreso.moneda)}
                 </p>
+
                 <p className="text-sm text-gray-500">
-                  Recibido: {mostrarARSyUSD(ingreso.montoRecibido || 0)}
+                  Recibido: {mostrarARSyUSD(ingreso.montoRecibido || 0, "ARS")}
                 </p>
 
                 {ingreso.dividido && (
                   <>
                     <p className="text-sm text-gray-400 mt-2">
                       <strong>1º pago:</strong>{" "}
-                      {mostrarARSyUSD(ingreso.monto1 || ingreso.montoTotal / 2)} –{" "}
+                      {mostrarARSyUSD(ingreso.monto1 || ingreso.montoTotal / 2, ingreso.moneda)} –{" "}
                       {dayjs(ingreso.fecha1.toDate()).format("DD/MM/YYYY")} –{" "}
                       {ingreso.recibido1 ? "✅" : "❌"}
                     </p>
                     <p className="text-sm text-gray-400">
                       <strong>2º pago:</strong>{" "}
-                      {mostrarARSyUSD(ingreso.monto2 || ingreso.montoTotal / 2)} –{" "}
+                      {mostrarARSyUSD(ingreso.monto2 || ingreso.montoTotal / 2, ingreso.moneda)} –{" "}
                       {ingreso.fecha2
                         ? dayjs(ingreso.fecha2.toDate()).format("DD/MM/YYYY")
                         : "Sin fecha"}{" "}

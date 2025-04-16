@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { collection, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
 
 export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
   const [descripcion, setDescripcion] = useState("");
@@ -10,6 +12,16 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const [subMetodo, setSubMetodo] = useState("");
   const [recurrente, setRecurrente] = useState(false);
+  const [categoria, setCategoria] = useState("");
+  const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, "categorias"), (snap) => {
+      const lista = snap.docs.map((doc) => doc.data().nombre);
+      setCategoriasDisponibles(lista);
+    });
+    return unsub;
+  }, []);
 
   const subOpcionesTarjeta = [
     "Ualá Emma",
@@ -43,7 +55,7 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
     e.preventDefault();
 
     const montoNum = parseFloat(montoARS);
-    if (!descripcion || !montoNum || !fecha) {
+    if (!descripcion || !montoNum || !fecha || !categoria) {
       alert("Completa todos los campos.");
       return;
     }
@@ -59,6 +71,7 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
       fecha,
       metodoPago: metodoFinal,
       recurrente,
+      categoria,
     });
 
     // Reset
@@ -69,6 +82,7 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
     setMetodoPago("Efectivo");
     setSubMetodo("");
     setRecurrente(false);
+    setCategoria("");
   };
 
   return (
@@ -92,6 +106,25 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
           className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           placeholder="Ej: Alquiler, Factura..."
         />
+      </div>
+
+      {/* Categoría */}
+      <div className="mb-2">
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Categoría
+        </label>
+        <select
+          value={categoria}
+          onChange={(e) => setCategoria(e.target.value)}
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+        >
+          <option value="">Selecciona una categoría</option>
+          {categoriasDisponibles.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Monto en ARS */}

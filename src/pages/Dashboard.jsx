@@ -46,11 +46,15 @@ export default function Dashboard() {
   }, []);
 
   const totalIngresos = ingresos
-    .filter((i) => i.recibido)
-    .reduce((acc, i) => acc + i.monto, 0);
+    .filter((i) => i.recibido || i.recibido1 || i.recibido2)
+    .reduce((acc, i) => {
+      if (i.montoRecibido) return acc + i.montoRecibido;
+      if (i.montoTotal && (i.recibido || i.recibido1 || i.recibido2))
+        return acc + i.montoTotal;
+      return acc;
+    }, 0);
 
   const totalGastos = gastos.reduce((acc, g) => acc + g.monto, 0);
-
   const dineroDisponible = totalIngresos - totalGastos;
 
   const ingresosPendientes = ingresos.filter((i) => {
@@ -59,14 +63,13 @@ export default function Dashboard() {
     }
     return !i.recibido1;
   });
-  
+
   const totalPendiente = ingresosPendientes.reduce((acc, i) => {
     const recibido =
       (i.recibido1 ? i.monto1 || i.montoTotal / 2 : 0) +
       (i.recibido2 ? i.monto2 || i.montoTotal / 2 : 0);
     return acc + (i.montoTotal - recibido);
   }, 0);
-  
 
   const vencimientosPendientes = vencimientos.filter((v) => !v.pagado);
   const totalVencimientosPendientes = vencimientosPendientes.reduce(
@@ -91,7 +94,7 @@ export default function Dashboard() {
       fecha: g.fecha,
     })),
     ...ingresos
-      .filter((i) => i.recibido)
+      .filter((i) => i.recibido || i.recibido1 || i.recibido2)
       .map((i) => ({
         tipo: "Ingreso",
         descripcion: i.descripcion,
@@ -110,11 +113,28 @@ export default function Dashboard() {
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
     .slice(0, 5);
 
+  // 🔧 NUEVO BLOQUE para sumar gastos + vencimientos pagados por categoría
   const gastosPorCategoria = gastos.reduce((acc, g) => {
     if (!acc[g.categoria]) acc[g.categoria] = 0;
     acc[g.categoria] += g.monto;
     return acc;
   }, {});
+
+  const vencimientosPagadosPorCategoria = vencimientos.reduce((acc, v) => {
+    if (v.pagado && v.categoria) {
+      if (!acc[v.categoria]) acc[v.categoria] = 0;
+      acc[v.categoria] += v.monto;
+    }
+    return acc;
+  }, {});
+
+  const gastoTotalPorCategoria = {};
+  categorias.forEach((cat) => {
+    const nombre = cat.nombre;
+    gastoTotalPorCategoria[nombre] =
+      (gastosPorCategoria[nombre] || 0) +
+      (vencimientosPagadosPorCategoria[nombre] || 0);
+  });
 
   const mostrarARSyUSD = (monto) => {
     const enUSD = (monto / cotizacionUSD).toFixed(2);
@@ -192,7 +212,7 @@ export default function Dashboard() {
             key={cat.id}
             nombre={cat.nombre}
             presupuesto={cat.presupuesto}
-            gastado={gastosPorCategoria[cat.nombre] || 0}
+            gastado={gastoTotalPorCategoria[cat.nombre] || 0}
           />
         ))}
       </div>

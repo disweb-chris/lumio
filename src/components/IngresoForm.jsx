@@ -47,12 +47,19 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    const monto = parseFloat(montoARS);
-    if (!descripcion || !monto || !fecha) return;
+    const montoARSnum = parseFloat(montoARS);
+    const montoUSDnum = parseFloat(montoUSD);
+    if (!descripcion || (!montoARSnum && !montoUSDnum) || !fecha) return;
+
+    const moneda = montoUSD ? "USD" : "ARS";
+    const montoTotal = moneda === "USD" ? montoUSDnum : montoARSnum;
 
     let ingreso = {
       descripcion,
-      montoTotal: monto,
+      moneda,
+      montoTotal,
+      montoARS: montoARSnum || null,
+      montoUSD: montoUSDnum || null,
       fecha1: fecha,
       recibido1: false,
       recibido2: false,
@@ -60,15 +67,13 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
     };
 
     if (modo === "completo") {
-      ingreso.montoRecibido = monto;
-      ingreso.recibido1 = true;
+      ingreso.montoRecibido = 0; // Se registra al marcar como recibido
       ingreso.fecha2 = null;
     }
 
     if (modo === "auto") {
-      ingreso.montoRecibido = 0;
-      ingreso.monto1 = monto / 2;
-      ingreso.monto2 = monto / 2;
+      ingreso.monto1 = montoTotal / 2;
+      ingreso.monto2 = montoTotal / 2;
       ingreso.fecha2 = calcularFechaSegundoPago(fecha);
     }
 
@@ -76,7 +81,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
       const m1 = parseFloat(monto1);
       const m2 = parseFloat(monto2);
       if (isNaN(m1) || isNaN(m2)) return alert("Montos inválidos");
-      ingreso.montoRecibido = 0;
+
       ingreso.monto1 = m1;
       ingreso.monto2 = m2;
       ingreso.fecha2 = fecha2 || null;
@@ -104,7 +109,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         Registrar ingreso
       </h2>
 
-      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
@@ -117,7 +121,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         />
       </div>
 
-      {/* Monto ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
@@ -130,7 +133,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         />
       </div>
 
-      {/* Monto USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
@@ -143,7 +145,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         />
       </div>
 
-      {/* Fecha del primer pago */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha primer pago
@@ -156,7 +157,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         />
       </div>
 
-      {/* Opciones */}
       <div className="mb-4">
         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Tipo de ingreso
@@ -195,7 +195,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         </div>
       </div>
 
-      {/* División manual */}
       {modo === "manual" && (
         <>
           <div className="mb-2">

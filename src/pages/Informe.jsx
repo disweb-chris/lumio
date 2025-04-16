@@ -38,11 +38,12 @@ const subTarjetas = [
 
 export default function Informe() {
   const [gastos, setGastos] = useState([]);
+  const [vencimientos, setVencimientos] = useState([]);
   const [gastosFiltrados, setGastosFiltrados] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, "gastos"), (snap) => {
+    const unsubGastos = onSnapshot(collection(db, "gastos"), (snap) => {
       const data = snap.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
@@ -50,11 +51,22 @@ export default function Informe() {
       setGastos(data);
     });
 
+    const unsubVenc = onSnapshot(collection(db, "vencimientos"), (snap) => {
+      const data = snap.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      setVencimientos(data);
+    });
+
     obtenerCotizacionUSD().then((valor) => {
       if (valor) setCotizacionUSD(valor);
     });
 
-    return () => unsub();
+    return () => {
+      unsubGastos();
+      unsubVenc();
+    };
   }, []);
 
   const mostrarARSyUSD = (monto) => {
@@ -62,11 +74,27 @@ export default function Informe() {
     return `${formatearMoneda(monto)} ARS / u$d ${enUSD}`;
   };
 
-  const gastosPorCategoria = gastosFiltrados.reduce((acc, gasto) => {
-    if (!acc[gasto.categoria]) acc[gasto.categoria] = 0;
-    acc[gasto.categoria] += gasto.monto;
-    return acc;
-  }, {});
+  // ✅ FILTRAR también los vencimientos del mismo mes
+  const vencimientosFiltrados = vencimientos.filter((v) => {
+    if (!v.pagado || !v.fecha) return false;
+    if (!gastosFiltrados.length) return false; // aún sin filtro
+    const mesReferencia = dayjs(gastosFiltrados[0].fecha?.toDate?.() || gastosFiltrados[0].fecha).format("YYYY-MM");
+    const mesVenc = dayjs(v.fecha?.toDate?.() || v.fecha).format("YYYY-MM");
+    return mesVenc === mesReferencia;
+  });
+
+  // ✅ SUMAR gastos + vencimientos pagados por categoría
+  const gastosPorCategoria = {};
+
+  gastosFiltrados.forEach((g) => {
+    if (!g.categoria) return;
+    gastosPorCategoria[g.categoria] = (gastosPorCategoria[g.categoria] || 0) + g.monto;
+  });
+
+  vencimientosFiltrados.forEach((v) => {
+    if (!v.categoria) return;
+    gastosPorCategoria[v.categoria] = (gastosPorCategoria[v.categoria] || 0) + v.monto;
+  });
 
   const data = Object.entries(gastosPorCategoria).map(([name, value]) => ({
     name,
@@ -88,7 +116,6 @@ export default function Informe() {
     total,
   }));
 
-  // 👉 Consumo por método de pago
   const consumoPorMetodo = gastos.reduce((acc, gasto) => {
     const metodo = gasto.metodoPago || "Sin especificar";
     if (!acc[metodo]) acc[metodo] = 0;
@@ -96,7 +123,6 @@ export default function Informe() {
     return acc;
   }, {});
 
-  // 👉 Desglose por tarjeta
   const desglosePorTarjeta = {};
 
   gastos.forEach((gasto) => {
@@ -118,7 +144,6 @@ export default function Informe() {
 
       <FiltroMes items={gastos} onFiltrar={setGastosFiltrados} />
 
-      {/* GRÁFICO TORTA */}
       {total === 0 ? (
         <p className="text-gray-600 dark:text-gray-300">
           No hay gastos registrados para este mes.
@@ -148,7 +173,6 @@ export default function Informe() {
         </div>
       )}
 
-      {/* GRÁFICO DE LÍNEA */}
       {dataLineChart.length > 0 && (
         <div className="w-full h-80 mt-12">
           <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
@@ -172,7 +196,6 @@ export default function Informe() {
         </div>
       )}
 
-      {/* TABLA POR CATEGORÍA */}
       {data.length > 0 && (
         <div className="mt-12">
           <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
@@ -204,7 +227,6 @@ export default function Informe() {
         </div>
       )}
 
-      {/* SECCIÓN: TARJETA DE CRÉDITO */}
       <div className="mt-12">
         <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
           Tarjeta de crédito – Consumo por método de pago
