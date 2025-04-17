@@ -54,21 +54,35 @@ export default function Dashboard() {
       return acc;
     }, 0);
 
-  const totalGastos = gastos.reduce((acc, g) => acc + g.monto, 0);
+  const totalGastos = gastos.reduce((acc, g) => {
+    const esTarjeta = g.metodoPago?.toLowerCase().includes("tarjeta");
+    return esTarjeta ? acc : acc + g.monto;
+  }, 0);
+
+  const totalTarjeta = gastos.reduce((acc, g) => {
+    const esTarjeta = g.metodoPago?.toLowerCase().includes("tarjeta");
+    return esTarjeta ? acc + g.monto : acc;
+  }, 0);
+
   const dineroDisponible = totalIngresos - totalGastos;
 
   const ingresosPendientes = ingresos.filter((i) => {
-    if (i.dividido) {
-      return !i.recibido1 || !i.recibido2;
-    }
-    return !i.recibido1;
+    if (i.dividido) return !i.recibido1 || !i.recibido2;
+    return !i.recibido1 && !i.recibido;
   });
 
   const totalPendiente = ingresosPendientes.reduce((acc, i) => {
+    const cotiz = cotizacionUSD || 1;
+
+    const getEnARS = (monto) =>
+      (i.moneda === "USD" ? monto * cotiz : monto) || 0;
+
+    const montoTotal = getEnARS(i.montoTotal);
     const recibido =
-      (i.recibido1 ? i.monto1 || i.montoTotal / 2 : 0) +
-      (i.recibido2 ? i.monto2 || i.montoTotal / 2 : 0);
-    return acc + (i.montoTotal - recibido);
+      (i.recibido1 ? getEnARS(i.monto1 || i.montoTotal / 2) : 0) +
+      (i.recibido2 ? getEnARS(i.monto2 || i.montoTotal / 2) : 0);
+
+    return acc + (montoTotal - recibido);
   }, 0);
 
   const vencimientosPendientes = vencimientos.filter((v) => !v.pagado);
@@ -113,7 +127,6 @@ export default function Dashboard() {
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
     .slice(0, 5);
 
-  // 🔧 NUEVO BLOQUE para sumar gastos + vencimientos pagados por categoría
   const gastosPorCategoria = gastos.reduce((acc, g) => {
     if (!acc[g.categoria]) acc[g.categoria] = 0;
     acc[g.categoria] += g.monto;
@@ -161,6 +174,10 @@ export default function Dashboard() {
         >
           {mostrarARSyUSD(dineroDisponible)}
         </p>
+        <div className="text-sm text-purple-700 dark:text-purple-300 mt-2">
+          💳 Consumo con tarjeta:{" "}
+          <span className="font-medium">{mostrarARSyUSD(totalTarjeta)}</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">

@@ -2,7 +2,12 @@ import { useState, useEffect } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 
-export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
+export default function VencimientoForm({
+  onAgregar,
+  onActualizar,
+  editando,
+  cotizacionUSD = 1,
+}) {
   const [descripcion, setDescripcion] = useState("");
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
@@ -22,6 +27,34 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
     });
     return unsub;
   }, []);
+
+  // Cargar datos si se está editando
+  useEffect(() => {
+    if (editando) {
+      setDescripcion(editando.descripcion || "");
+      setMontoARS(editando.monto?.toString() || "");
+      setMontoUSD(
+        editando.monto
+          ? (parseFloat(editando.monto) / cotizacionUSD).toFixed(2)
+          : ""
+      );
+      setFecha(
+        editando.fecha?.toDate
+          ? editando.fecha.toDate().toISOString().split("T")[0]
+          : editando.fecha || ""
+      );
+      setMetodoPago(
+        editando.metodoPago?.includes("Tarjeta") ? "Tarjeta de crédito" : editando.metodoPago
+      );
+      setSubMetodo(
+        editando.metodoPago?.includes("Tarjeta")
+          ? editando.metodoPago.split(":")[1]?.trim()
+          : ""
+      );
+      setRecurrente(editando.recurrente || false);
+      setCategoria(editando.categoria || "");
+    }
+  }, [editando, cotizacionUSD]);
 
   const subOpcionesTarjeta = [
     "Ualá Emma",
@@ -65,14 +98,20 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
         ? `Tarjeta: ${subMetodo}`
         : metodoPago;
 
-    onAgregar({
+    const nuevo = {
       descripcion,
       monto: montoNum,
       fecha,
       metodoPago: metodoFinal,
       recurrente,
       categoria,
-    });
+    };
+
+    if (editando?.id) {
+      onActualizar({ ...nuevo, id: editando.id });
+    } else {
+      onAgregar(nuevo);
+    }
 
     // Reset
     setDescripcion("");
@@ -91,7 +130,7 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
       className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6"
     >
       <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
-        Nuevo vencimiento
+        {editando ? "Editar vencimiento" : "Nuevo vencimiento"}
       </h2>
 
       {/* Descripción */}
@@ -229,7 +268,7 @@ export default function VencimientoForm({ onAgregar, cotizacionUSD = 1 }) {
         type="submit"
         className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 mt-2"
       >
-        Agregar
+        {editando ? "Actualizar" : "Agregar"}
       </button>
     </form>
   );

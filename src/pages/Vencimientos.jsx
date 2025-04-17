@@ -19,6 +19,7 @@ import { obtenerCotizacionUSD } from "../utils/configuracion";
 export default function Vencimientos() {
   const [vencimientos, setVencimientos] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
+  const [editando, setEditando] = useState(null); // 👈 Nuevo estado
 
   useEffect(() => {
     const q = query(collection(db, "vencimientos"), orderBy("fecha", "asc"));
@@ -49,6 +50,23 @@ export default function Vencimientos() {
     }
   };
 
+  const actualizarVencimiento = async (actualizado) => {
+    try {
+      const ref = doc(db, "vencimientos", actualizado.id);
+      const data = { ...actualizado };
+      delete data.id;
+
+      await updateDoc(ref, {
+        ...data,
+        fecha: Timestamp.fromDate(new Date(actualizado.fecha)),
+      });
+
+      setEditando(null);
+    } catch (error) {
+      console.error("❌ Error al actualizar vencimiento:", error);
+    }
+  };
+
   const togglePagado = async (id, actual, vencimiento) => {
     try {
       const nuevoEstado = !actual;
@@ -59,7 +77,7 @@ export default function Vencimientos() {
 
       if (nuevoEstado) {
         const docRef = await addDoc(collection(db, "gastos"), {
-          categoria: "Vencimientos",
+          categoria: vencimiento.categoria || "Vencimientos",
           descripcion: vencimiento.descripcion,
           monto: vencimiento.monto,
           metodoPago: vencimiento.metodoPago || "Sin especificar",
@@ -89,6 +107,7 @@ export default function Vencimientos() {
             metodoPago: vencimiento.metodoPago || "Sin especificar",
             pagado: false,
             recurrente: true,
+            categoria: vencimiento.categoria || "Vencimientos",
             fecha: Timestamp.fromDate(fechaProxima),
           });
         }
@@ -118,6 +137,8 @@ export default function Vencimientos() {
     <div>
       <VencimientoForm
         onAgregar={agregarVencimiento}
+        onActualizar={actualizarVencimiento}
+        editando={editando}
         cotizacionUSD={cotizacionUSD}
       />
 
@@ -147,6 +168,11 @@ export default function Vencimientos() {
               <p className="text-sm text-gray-600 dark:text-gray-300">
                 Monto: ${formatearMoneda(item.monto)}
               </p>
+              {item.categoria && (
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  Categoría: {item.categoria}
+                </p>
+              )}
               {item.recurrente && (
                 <span className="text-xs text-purple-500 font-semibold block mt-1">
                   🔁 Recurrente mensual
@@ -160,6 +186,12 @@ export default function Vencimientos() {
                 className="text-sm px-3 py-1 rounded bg-blue-600 text-white"
               >
                 {item.pagado ? "Desmarcar" : "Marcar pagado"}
+              </button>
+              <button
+                onClick={() => setEditando(item)}
+                className="text-sm px-2 py-1 rounded bg-yellow-100 text-yellow-800 border border-yellow-300"
+              >
+                ✏️
               </button>
               <button
                 onClick={() => eliminarVencimiento(item.id)}

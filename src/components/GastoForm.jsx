@@ -15,8 +15,8 @@ export default function GastoForm({ cotizacionUSD }) {
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
   const [descripcion, setDescripcion] = useState("");
-  const [fecha, setFecha] = useState(() =>
-    new Date().toISOString().split("T")[0]
+  const [fecha, setFecha] = useState(
+    () => new Date().toISOString().split("T")[0]
   );
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const [subMetodo, setSubMetodo] = useState("");

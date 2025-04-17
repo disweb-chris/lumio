@@ -28,14 +28,6 @@ const COLORS = [
   "#8B5CF6",
 ];
 
-const subTarjetas = [
-  "Ualá Emma",
-  "Ualá Chris",
-  "Naranja X",
-  "Visa Santander",
-  "Amex Santander",
-];
-
 export default function Informe() {
   const [gastos, setGastos] = useState([]);
   const [vencimientos, setVencimientos] = useState([]);
@@ -74,26 +66,33 @@ export default function Informe() {
     return `${formatearMoneda(monto)} ARS / u$d ${enUSD}`;
   };
 
-  // ✅ FILTRAR también los vencimientos del mismo mes
+  const totalTarjeta = gastosFiltrados.reduce((acc, g) => {
+    const esTarjeta = g.metodoPago?.toLowerCase().includes("tarjeta");
+    return esTarjeta ? acc + g.monto : acc;
+  }, 0);
+
   const vencimientosFiltrados = vencimientos.filter((v) => {
     if (!v.pagado || !v.fecha) return false;
-    if (!gastosFiltrados.length) return false; // aún sin filtro
-    const mesReferencia = dayjs(gastosFiltrados[0].fecha?.toDate?.() || gastosFiltrados[0].fecha).format("YYYY-MM");
+    if (!gastosFiltrados.length) return false;
+    const mesReferencia = dayjs(
+      gastosFiltrados[0].fecha?.toDate?.() || gastosFiltrados[0].fecha
+    ).format("YYYY-MM");
     const mesVenc = dayjs(v.fecha?.toDate?.() || v.fecha).format("YYYY-MM");
     return mesVenc === mesReferencia;
   });
 
-  // ✅ SUMAR gastos + vencimientos pagados por categoría
   const gastosPorCategoria = {};
 
   gastosFiltrados.forEach((g) => {
     if (!g.categoria) return;
-    gastosPorCategoria[g.categoria] = (gastosPorCategoria[g.categoria] || 0) + g.monto;
+    gastosPorCategoria[g.categoria] =
+      (gastosPorCategoria[g.categoria] || 0) + g.monto;
   });
 
   vencimientosFiltrados.forEach((v) => {
     if (!v.categoria) return;
-    gastosPorCategoria[v.categoria] = (gastosPorCategoria[v.categoria] || 0) + v.monto;
+    gastosPorCategoria[v.categoria] =
+      (gastosPorCategoria[v.categoria] || 0) + v.monto;
   });
 
   const data = Object.entries(gastosPorCategoria).map(([name, value]) => ({
@@ -131,7 +130,8 @@ export default function Informe() {
       const tarjeta = metodo.split(":")[1].trim();
       if (!desglosePorTarjeta[tarjeta]) desglosePorTarjeta[tarjeta] = {};
       const cat = gasto.categoria || "Sin categoría";
-      if (!desglosePorTarjeta[tarjeta][cat]) desglosePorTarjeta[tarjeta][cat] = 0;
+      if (!desglosePorTarjeta[tarjeta][cat])
+        desglosePorTarjeta[tarjeta][cat] = 0;
       desglosePorTarjeta[tarjeta][cat] += gasto.monto;
     }
   });
@@ -143,6 +143,13 @@ export default function Informe() {
       </h2>
 
       <FiltroMes items={gastos} onFiltrar={setGastosFiltrados} />
+
+      {gastosFiltrados.length > 0 && (
+        <div className="text-sm text-purple-700 dark:text-purple-300 mb-4">
+          💳 Consumo con tarjeta este mes:{" "}
+          <span className="font-medium">{mostrarARSyUSD(totalTarjeta)}</span>
+        </div>
+      )}
 
       {total === 0 ? (
         <p className="text-gray-600 dark:text-gray-300">

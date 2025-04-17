@@ -2,21 +2,21 @@ import { useState, useEffect } from "react";
 import {
   collection,
   onSnapshot,
+  addDoc,
+  deleteDoc,
+  doc,
+  Timestamp,
   query,
   orderBy,
-  doc,
-  deleteDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import GastoForm from "../components/GastoForm";
 import { formatearMoneda } from "../utils/format";
 import dayjs from "dayjs";
-import FiltroMes from "../components/FiltroMes";
-import GastoForm from "../components/GastoForm";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 
 export default function Gastos() {
   const [gastos, setGastos] = useState([]);
-  const [gastosFiltrados, setGastosFiltrados] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
@@ -36,76 +36,83 @@ export default function Gastos() {
     return () => unsubscribe();
   }, []);
 
+  const agregarGasto = async (nuevo) => {
+    try {
+      await addDoc(collection(db, "gastos"), {
+        ...nuevo,
+        fecha: Timestamp.fromDate(new Date(nuevo.fecha)),
+        timestamp: Timestamp.now(),
+      });
+    } catch (error) {
+      console.error("❌ Error al guardar gasto:", error);
+    }
+  };
+
   const eliminarGasto = async (id) => {
     const confirmado = window.confirm("¿Eliminar este gasto?");
     if (!confirmado) return;
 
     try {
       await deleteDoc(doc(db, "gastos", id));
-      console.log("🗑 Gasto eliminado de Firebase");
     } catch (error) {
       console.error("❌ Error al eliminar gasto:", error);
     }
   };
 
   const mostrarARSyUSD = (monto) => {
-    const usd = (monto / cotizacionUSD).toFixed(2);
-    return `${formatearMoneda(monto)} ARS / u$d ${usd}`;
+    const num = parseFloat(monto || 0);
+    const usd = cotizacionUSD > 0 ? (num / cotizacionUSD).toFixed(2) : "0.00";
+    return `$${formatearMoneda(num)} ARS / u$d ${usd}`;
   };
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-white">
+      <GastoForm onAgregarGasto={agregarGasto} cotizacionUSD={cotizacionUSD} />
+
+      <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
         Historial de gastos
-      </h2>
+      </h3>
 
-      <GastoForm cotizacionUSD={cotizacionUSD} />
+      <ul className="space-y-3">
+        {gastos.map((gasto) => (
+          <li
+            key={gasto.id}
+            className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-start"
+          >
+            <div>
+              <p className="text-lg font-semibold">{gasto.descripcion}</p>
+              <p className="text-sm text-gray-500">
+                Monto: {mostrarARSyUSD(gasto.monto)}
+              </p>
+              <p className="text-sm text-gray-500">
+                Categoría: {gasto.categoria}
+              </p>
+              <p className="text-sm text-gray-500">
+                Método de pago: {gasto.metodoPago}
+              </p>
 
-      <FiltroMes items={gastos} onFiltrar={setGastosFiltrados} />
-
-      {gastosFiltrados.length === 0 ? (
-        <p className="text-gray-600 dark:text-gray-300">
-          No hay gastos para este mes.
-        </p>
-      ) : (
-        <ul className="space-y-3">
-          {gastosFiltrados.map((gasto) => (
-            <li
-              key={gasto.id}
-              className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-center"
-            >
-              <div>
-                <p className="text-lg font-semibold">
-                  {gasto.descripcion || "Gasto"}
+              {gasto.metodoPago?.toLowerCase().includes("tarjeta") && (
+                <p className="text-xs text-purple-500 font-semibold mt-1">
+                  💳 Pago con tarjeta de crédito
                 </p>
-                <p className="text-sm text-gray-500">
-                  {gasto.categoria} –{" "}
-                  {dayjs(
-                    gasto.fecha?.toDate ? gasto.fecha.toDate() : gasto.fecha
-                  ).format("DD/MM/YYYY")}
-                </p>
-                {gasto.metodoPago && (
-                  <p className="text-sm text-gray-500 mt-1">
-                    Método de pago: {gasto.metodoPago}
-                  </p>
+              )}
+
+              <p className="text-sm text-gray-400 mt-1">
+                {dayjs(gasto.fecha?.toDate?.() || gasto.fecha).format(
+                  "DD/MM/YYYY"
                 )}
-              </div>
-              <div className="flex items-center gap-3">
-                <p className="text-xl font-bold text-red-500">
-                  - ${formatearMoneda(gasto.monto)}
-                </p>
-                <button
-                  onClick={() => eliminarGasto(gasto.id)}
-                  className="text-sm px-2 py-1 rounded bg-white text-red-600 hover:bg-gray-200 border"
-                  title="Eliminar gasto"
-                >
-                  🗑
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+              </p>
+            </div>
+
+            <button
+              onClick={() => eliminarGasto(gasto.id)}
+              className="text-red-600 hover:text-red-800 border border-red-600 rounded px-3 py-1 text-sm"
+            >
+              🗑 Eliminar
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
