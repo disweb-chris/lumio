@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { db } from "../firebase";
 import {
@@ -8,6 +9,7 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
+import { convertirUsdAArsFijo } from "../utils/conversion";
 
 export default function GastoForm({ cotizacionUSD }) {
   const [categoria, setCategoria] = useState("");
@@ -47,23 +49,39 @@ export default function GastoForm({ cotizacionUSD }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const montoNum = parseFloat(montoARS);
-    if (!montoNum || montoNum <= 0 || !categoria) return;
+
+    const montoARSnum = parseFloat(montoARS);
+    const montoUSDnum = parseFloat(montoUSD);
+    const tieneARS = !isNaN(montoARSnum) && montoARSnum > 0;
+    const tieneUSD = !isNaN(montoUSDnum) && montoUSDnum > 0;
+
+    if (!descripcion || (!tieneARS && !tieneUSD) || !fecha || !categoria) return;
 
     const metodoFinal =
       metodoPago === "Tarjeta de crédito" && subMetodo
         ? `Tarjeta: ${subMetodo}`
         : metodoPago;
 
+    const nuevoGasto = {
+      categoria,
+      descripcion,
+      metodoPago: metodoFinal,
+      fecha: Timestamp.fromDate(new Date(fecha)),
+      timestamp: Timestamp.now(),
+      monto: tieneARS ? montoARSnum : null,
+      montoUSD: tieneUSD ? montoUSDnum : null,
+    };
+
+    if (tieneUSD) {
+      const conversion = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
+      if (conversion) {
+        nuevoGasto.montoARSConvertido = parseFloat(conversion.montoARSConvertido);
+        nuevoGasto.cotizacionAlMomento = parseFloat(conversion.cotizacionAlMomento);
+      }
+    }
+
     try {
-      await addDoc(collection(db, "gastos"), {
-        categoria,
-        monto: montoNum,
-        descripcion,
-        metodoPago: metodoFinal,
-        fecha: Timestamp.fromDate(new Date(fecha)),
-        timestamp: Timestamp.now(),
-      });
+      await addDoc(collection(db, "gastos"), nuevoGasto);
       console.log("✅ Gasto guardado en Firebase");
     } catch (error) {
       console.error("❌ Error al guardar en Firebase:", error);
@@ -106,7 +124,6 @@ export default function GastoForm({ cotizacionUSD }) {
         Registrar gasto
       </h2>
 
-      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
@@ -120,7 +137,6 @@ export default function GastoForm({ cotizacionUSD }) {
         />
       </div>
 
-      {/* Categoría */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Categoría
@@ -138,7 +154,6 @@ export default function GastoForm({ cotizacionUSD }) {
         </select>
       </div>
 
-      {/* Monto ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
@@ -151,7 +166,6 @@ export default function GastoForm({ cotizacionUSD }) {
         />
       </div>
 
-      {/* Monto USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
@@ -164,7 +178,6 @@ export default function GastoForm({ cotizacionUSD }) {
         />
       </div>
 
-      {/* Método de pago */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Método de pago
@@ -206,7 +219,6 @@ export default function GastoForm({ cotizacionUSD }) {
         </div>
       )}
 
-      {/* Fecha */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha

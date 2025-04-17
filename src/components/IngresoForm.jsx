@@ -1,4 +1,6 @@
+
 import { useState } from "react";
+import { convertirUsdAArsFijo } from "../utils/conversion";
 
 export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
   const [descripcion, setDescripcion] = useState("");
@@ -8,7 +10,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
     new Date().toISOString().split("T")[0]
   );
 
-  const [modo, setModo] = useState("completo"); // completo | auto | manual
+  const [modo, setModo] = useState("completo");
   const [monto1, setMonto1] = useState("");
   const [monto2, setMonto2] = useState("");
   const [fecha2, setFecha2] = useState("");
@@ -47,27 +49,39 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
     const montoARSnum = parseFloat(montoARS);
     const montoUSDnum = parseFloat(montoUSD);
-    if (!descripcion || (!montoARSnum && !montoUSDnum) || !fecha) return;
+    const tieneARS = !isNaN(montoARSnum) && montoARSnum > 0;
+    const tieneUSD = !isNaN(montoUSDnum) && montoUSDnum > 0;
 
-    const moneda = montoUSD ? "USD" : "ARS";
+    if (!descripcion || (!tieneARS && !tieneUSD) || !fecha) return;
+
+    const moneda = tieneUSD ? "USD" : "ARS";
     const montoTotal = moneda === "USD" ? montoUSDnum : montoARSnum;
 
     let ingreso = {
       descripcion,
       moneda,
       montoTotal,
-      montoARS: montoARSnum || null,
-      montoUSD: montoUSDnum || null,
+      montoARS: tieneARS ? montoARSnum : null,
+      montoUSD: tieneUSD ? montoUSDnum : null,
       fecha1: fecha,
       recibido1: false,
       recibido2: false,
       dividido: modo !== "completo",
     };
 
+    if (tieneUSD) {
+      const conversion = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
+      if (conversion) {
+        ingreso.montoARSConvertido = parseFloat(conversion.montoARSConvertido);
+        ingreso.cotizacionAlMomento = parseFloat(conversion.cotizacionAlMomento);
+      }
+    }
+
     if (modo === "completo") {
-      ingreso.montoRecibido = 0; // Se registra al marcar como recibido
+      ingreso.montoRecibido = 0;
       ingreso.fecha2 = null;
     }
 
@@ -81,7 +95,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
       const m1 = parseFloat(monto1);
       const m2 = parseFloat(monto2);
       if (isNaN(m1) || isNaN(m2)) return alert("Montos inválidos");
-
       ingreso.monto1 = m1;
       ingreso.monto2 = m2;
       ingreso.fecha2 = fecha2 || null;
@@ -89,7 +102,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
 
     onAgregarIngreso(ingreso);
 
-    // Reset
     setDescripcion("");
     setMontoARS("");
     setMontoUSD("");

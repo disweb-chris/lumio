@@ -1,6 +1,8 @@
+
 import { useState, useEffect } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
+import { convertirUsdAArsFijo } from "../utils/conversion";
 
 export default function VencimientoForm({
   onAgregar,
@@ -28,7 +30,6 @@ export default function VencimientoForm({
     return unsub;
   }, []);
 
-  // Cargar datos si se está editando
   useEffect(() => {
     if (editando) {
       setDescripcion(editando.descripcion || "");
@@ -44,7 +45,9 @@ export default function VencimientoForm({
           : editando.fecha || ""
       );
       setMetodoPago(
-        editando.metodoPago?.includes("Tarjeta") ? "Tarjeta de crédito" : editando.metodoPago
+        editando.metodoPago?.includes("Tarjeta")
+          ? "Tarjeta de crédito"
+          : editando.metodoPago
       );
       setSubMetodo(
         editando.metodoPago?.includes("Tarjeta")
@@ -87,8 +90,12 @@ export default function VencimientoForm({
   const handleSubmit = (e) => {
     e.preventDefault();
 
-    const montoNum = parseFloat(montoARS);
-    if (!descripcion || !montoNum || !fecha || !categoria) {
+    const montoARSnum = parseFloat(montoARS);
+    const montoUSDnum = parseFloat(montoUSD);
+    const tieneARS = !isNaN(montoARSnum) && montoARSnum > 0;
+    const tieneUSD = !isNaN(montoUSDnum) && montoUSDnum > 0;
+
+    if (!descripcion || (!tieneARS && !tieneUSD) || !fecha || !categoria) {
       alert("Completa todos los campos.");
       return;
     }
@@ -100,12 +107,21 @@ export default function VencimientoForm({
 
     const nuevo = {
       descripcion,
-      monto: montoNum,
+      monto: tieneARS ? montoARSnum : null,
+      montoUSD: tieneUSD ? montoUSDnum : null,
       fecha,
       metodoPago: metodoFinal,
       recurrente,
       categoria,
     };
+
+    if (tieneUSD) {
+      const conversion = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
+      if (conversion) {
+        nuevo.montoARSConvertido = parseFloat(conversion.montoARSConvertido);
+        nuevo.cotizacionAlMomento = parseFloat(conversion.cotizacionAlMomento);
+      }
+    }
 
     if (editando?.id) {
       onActualizar({ ...nuevo, id: editando.id });
@@ -113,7 +129,6 @@ export default function VencimientoForm({
       onAgregar(nuevo);
     }
 
-    // Reset
     setDescripcion("");
     setMontoARS("");
     setMontoUSD("");
@@ -133,7 +148,6 @@ export default function VencimientoForm({
         {editando ? "Editar vencimiento" : "Nuevo vencimiento"}
       </h2>
 
-      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
@@ -147,7 +161,6 @@ export default function VencimientoForm({
         />
       </div>
 
-      {/* Categoría */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Categoría
@@ -166,7 +179,6 @@ export default function VencimientoForm({
         </select>
       </div>
 
-      {/* Monto en ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
@@ -179,7 +191,6 @@ export default function VencimientoForm({
         />
       </div>
 
-      {/* Monto en USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
@@ -192,7 +203,6 @@ export default function VencimientoForm({
         />
       </div>
 
-      {/* Método de pago */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Método de pago
@@ -234,7 +244,6 @@ export default function VencimientoForm({
         </div>
       )}
 
-      {/* Fecha */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha límite
@@ -247,7 +256,6 @@ export default function VencimientoForm({
         />
       </div>
 
-      {/* Recurrente */}
       <div className="mb-4 flex items-center gap-2">
         <input
           id="recurrente"

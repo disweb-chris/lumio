@@ -15,6 +15,7 @@ import { formatearMoneda } from "../utils/format";
 import IngresoForm from "../components/IngresoForm";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import dayjs from "dayjs";
+import { convertirUsdAArsFijo } from "../utils/conversion";
 
 export default function Ingresos() {
   const [ingresos, setIngresos] = useState([]);
