@@ -11,42 +11,100 @@ import {
 import { convertirUsdAArsFijo } from "../utils/conversion";
 import { toast } from "react-toastify";
 
-export default function GastoForm({ cotizacionUSD }) {
+export default function GastoForm({
+  cotizacionUSD,
+  onAgregarGasto,
+  editando = null,
+  onActualizarGasto,
+  onCancelEdit,
+}) {
+  /* ───────── estados ───────── */
   const [categoria, setCategoria] = useState("");
   const [categorias, setCategorias] = useState([]);
+
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
+
   const [descripcion, setDescripcion] = useState("");
   const [fecha, setFecha] = useState(() =>
     new Date().toISOString().split("T")[0]
   );
+
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const [subMetodo, setSubMetodo] = useState("");
 
-  const subOpcionesTarjeta = [
-    "Ualá Emma",
-    "Ualá Chris",
-    "Naranja X",
-    "Visa Santander",
-    "Amex Santander",
-  ];
-
+  /* ───────── cargar categorías ───────── */
   useEffect(() => {
     const q = query(collection(db, "categorias"), orderBy("nombre", "asc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
+    const unsub = onSnapshot(q, (snap) => {
+      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setCategorias(data);
-      if (data.length > 0 && !categoria) {
-        setCategoria(data[0].nombre);
-      }
+      if (data.length && !categoria) setCategoria(data[0].nombre);
     });
+    return () => unsub();
+    // eslint-disable-next-line
+  }, []);
 
-    return () => unsubscribe();
-  }, [categoria]);
+  /* ───────── cargar datos al editar ───────── */
+  useEffect(() => {
+    if (editando) {
+      setCategoria(editando.categoria || "");
+      setDescripcion(editando.descripcion || "");
+      setFecha(
+        editando.fecha?.toDate
+          ? editando.fecha.toDate().toISOString().split("T")[0]
+          : editando.fecha
+      );
+      setMetodoPago(
+        editando.metodoPago?.includes("Tarjeta")
+          ? "Tarjeta de crédito"
+          : editando.metodoPago || "Efectivo"
+      );
+      setSubMetodo(
+        editando.metodoPago?.includes("Tarjeta")
+          ? editando.metodoPago.split(":")[1]?.trim()
+          : ""
+      );
 
+      setMontoARS(editando.monto?.toString() || "");
+      setMontoUSD(
+        editando.montoUSD?.toString() ||
+          (editando.monto
+            ? (editando.monto / cotizacionUSD).toFixed(2)
+            : "")
+      );
+    } else {
+      resetForm();
+    }
+    // eslint-disable-next-line
+  }, [editando]);
+
+  const resetForm = () => {
+    setCategoria(categorias[0]?.nombre || "");
+    setDescripcion("");
+    setMontoARS("");
+    setMontoUSD("");
+    setMetodoPago("Efectivo");
+    setSubMetodo("");
+    setFecha(new Date().toISOString().split("T")[0]);
+  };
+
+  /* ───────── helpers conversión ───────── */
+  const actualizarDesdeARS = (v) => {
+    setMontoARS(v);
+    const num = parseFloat(v);
+    if (!isNaN(num) && cotizacionUSD > 0) setMontoUSD((num / cotizacionUSD).toFixed(2));
+    else setMontoUSD("");
+  };
+
+  const actualizarDesdeUSD = (v) => {
+    setMontoUSD(v);
+    const num = parseFloat(v);
+    if (!isNaN(num) && cotizacionUSD > 0) setMontoARS((num * cotizacionUSD).toFixed(2));
+    else setMontoARS("");
+  };
+
+  /* ───────── submit (alta / edición) ───────── */
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -65,7 +123,7 @@ export default function GastoForm({ cotizacionUSD }) {
         ? `Tarjeta: ${subMetodo}`
         : metodoPago;
 
-    const nuevoGasto = {
+    const base = {
       categoria,
       descripcion,
       metodoPago: metodoFinal,
@@ -76,56 +134,45 @@ export default function GastoForm({ cotizacionUSD }) {
     };
 
     if (tieneUSD) {
-      const conversion = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
-      if (conversion) {
-        nuevoGasto.montoARSConvertido = parseFloat(conversion.montoARSConvertido);
-        nuevoGasto.cotizacionAlMomento = parseFloat(conversion.cotizacionAlMomento);
+      const conv = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
+      if (conv) {
+        base.montoARSConvertido = parseFloat(conv.montoARSConvertido);
+        base.cotizacionAlMomento = parseFloat(conv.cotizacionAlMomento);
       }
     }
 
     try {
-      await addDoc(collection(db, "gastos"), nuevoGasto);
-      toast.success("✅ Gasto guardado correctamente");
-    } catch (error) {
-      console.error("❌ Error al guardar en Firebase:", error);
-      toast.error("❌ Error al guardar el gasto");
-    }
-
-    setMontoARS("");
-    setMontoUSD("");
-    setDescripcion("");
-    setMetodoPago("Efectivo");
-    setSubMetodo("");
-    setFecha(new Date().toISOString().split("T")[0]);
-  };
-
-  const actualizarDesdeARS = (valor) => {
-    setMontoARS(valor);
-    const num = parseFloat(valor);
-    if (!isNaN(num) && cotizacionUSD > 0) {
-      setMontoUSD((num / cotizacionUSD).toFixed(2));
-    } else {
-      setMontoUSD("");
+      if (editando) {
+        await onActualizarGasto({ ...editando, ...base });
+        toast.success("✅ Gasto actualizado");
+      } else {
+        await onAgregarGasto(base);
+        toast.success("✅ Gasto guardado correctamente");
+      }
+      resetForm();
+    } catch (err) {
+      console.error(err);
+      toast.error("❌ Error al guardar gasto");
     }
   };
 
-  const actualizarDesdeUSD = (valor) => {
-    setMontoUSD(valor);
-    const num = parseFloat(valor);
-    if (!isNaN(num) && cotizacionUSD > 0) {
-      setMontoARS((num * cotizacionUSD).toFixed(2));
-    } else {
-      setMontoARS("");
-    }
-  };
+  /* ───────── subopciones ───────── */
+  const subOpcionesTarjeta = [
+    "Ualá Emma",
+    "Ualá Chris",
+    "Naranja X",
+    "Visa Santander",
+    "Amex Santander",
+  ];
 
+  /* ───────── JSX ───────── */
   return (
     <form
       onSubmit={handleSubmit}
       className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6"
     >
       <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
-        Registrar gasto
+        {editando ? "Editar gasto" : "Registrar gasto"}
       </h2>
 
       {/* Descripción */}
@@ -196,9 +243,7 @@ export default function GastoForm({ cotizacionUSD }) {
           value={metodoPago}
           onChange={(e) => {
             setMetodoPago(e.target.value);
-            if (e.target.value !== "Tarjeta de crédito") {
-              setSubMetodo("");
-            }
+            if (e.target.value !== "Tarjeta de crédito") setSubMetodo("");
           }}
         >
           <option value="Efectivo">Efectivo</option>
@@ -208,7 +253,7 @@ export default function GastoForm({ cotizacionUSD }) {
         </select>
       </div>
 
-      {/* Submétodo si es tarjeta */}
+      {/* Submétodo */}
       {metodoPago === "Tarjeta de crédito" && (
         <div className="mb-2">
           <label className="block text-sm text-gray-700 dark:text-gray-300">
@@ -242,12 +287,29 @@ export default function GastoForm({ cotizacionUSD }) {
         />
       </div>
 
-      <button
-        type="submit"
-        className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 mt-2"
-      >
-        Agregar gasto
-      </button>
+      {/* botones */}
+      <div className="flex gap-3 mt-3">
+        <button
+          type="submit"
+          className={`${
+            editando ? "bg-blue-600" : "bg-green-600"
+          } text-white px-4 py-2 rounded hover:opacity-90`}
+        >
+          {editando ? "Actualizar gasto" : "Agregar gasto"}
+        </button>
+        {editando && (
+          <button
+            type="button"
+            onClick={() => {
+              onCancelEdit();
+              resetForm();
+            }}
+            className="px-4 py-2 rounded bg-gray-500 text-white hover:opacity-90"
+          >
+            Cancelar
+          </button>
+        )}
+      </div>
     </form>
   );
 }

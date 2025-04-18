@@ -1,40 +1,19 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { convertirUsdAArsFijo } from "../utils/conversion";
 import { toast } from "react-toastify";
 
-export default function IngresoForm({
-  onAgregarIngreso,
-  onActualizarIngreso,
-  cotizacionUSD = 1,
-  editando = null
-}) {
+export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
   const [descripcion, setDescripcion] = useState("");
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
-  const [fecha, setFecha] = useState(() =>
-    new Date().toISOString().split("T")[0]
+  const [fecha, setFecha] = useState(
+    () => new Date().toISOString().split("T")[0]
   );
-  const [modo, setModo] = useState("completo");
+
+  const [modo, setModo] = useState("completo"); // completo | auto | manual
   const [monto1, setMonto1] = useState("");
   const [monto2, setMonto2] = useState("");
   const [fecha2, setFecha2] = useState("");
-
-  useEffect(() => {
-    if (editando) {
-      setDescripcion(editando.descripcion || "");
-      setFecha(editando.fecha1?.toDate?.() ? editando.fecha1.toDate().toISOString().split("T")[0] : editando.fecha1);
-      setMontoARS(editando.montoARS?.toString() || "");
-      setMontoUSD(editando.montoUSD?.toString() || "");
-      setMonto1(editando.monto1?.toString() || "");
-      setMonto2(editando.monto2?.toString() || "");
-      setFecha2(
-        editando.fecha2?.toDate?.()
-          ? editando.fecha2.toDate().toISOString().split("T")[0]
-          : editando.fecha2 || ""
-      );
-      setModo(editando.dividido ? (editando.monto1 && editando.monto2 ? "manual" : "auto") : "completo");
-    }
-  }, [editando]);
 
   const calcularFechaSegundoPago = (fechaStr) => {
     const base = new Date(fechaStr);
@@ -91,24 +70,23 @@ export default function IngresoForm({
       montoARS: tieneARS ? montoARSnum : null,
       montoUSD: tieneUSD ? montoUSDnum : null,
       fecha1: fecha,
-      recibido1: editando?.recibido1 || false,
-      recibido2: editando?.recibido2 || false,
+      recibido1: false,
+      recibido2: false,
       dividido: modo !== "completo",
     };
-
-    if (editando?.montoRecibido) {
-      ingreso.montoRecibido = editando.montoRecibido;
-    }
 
     if (tieneUSD) {
       const conversion = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
       if (conversion) {
         ingreso.montoARSConvertido = parseFloat(conversion.montoARSConvertido);
-        ingreso.cotizacionAlMomento = parseFloat(conversion.cotizacionAlMomento);
+        ingreso.cotizacionAlMomento = parseFloat(
+          conversion.cotizacionAlMomento
+        );
       }
     }
 
     if (modo === "completo") {
+      ingreso.montoRecibido = 0;
       ingreso.fecha2 = null;
     }
 
@@ -131,14 +109,8 @@ export default function IngresoForm({
     }
 
     try {
-      if (editando && editando.id) {
-        ingreso.id = editando.id;
-        onActualizarIngreso(ingreso);
-        toast.success("✅ Ingreso actualizado");
-      } else {
-        onAgregarIngreso(ingreso);
-        toast.success("✅ Ingreso registrado correctamente");
-      }
+      onAgregarIngreso(ingreso);
+      toast.success("✅ Ingreso registrado correctamente");
     } catch (error) {
       console.error("❌ Error al guardar ingreso:", error);
       toast.error("❌ Error al guardar el ingreso");
@@ -161,7 +133,7 @@ export default function IngresoForm({
       className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6"
     >
       <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
-        {editando ? "Editar ingreso" : "Registrar ingreso"}
+        Registrar ingreso
       </h2>
 
       {/* Descripción */}
@@ -299,7 +271,7 @@ export default function IngresoForm({
         type="submit"
         className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 mt-2"
       >
-        {editando ? "Actualizar ingreso" : "Guardar ingreso"}
+        Guardar ingreso
       </button>
     </form>
   );
