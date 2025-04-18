@@ -45,6 +45,10 @@ export default function Dashboard() {
     };
   }, []);
 
+  /* ──────────────────────────────────────────
+     Sumatorias globales (ingresos, gastos, etc.)
+  ────────────────────────────────────────── */
+
   const totalIngresos = ingresos
     .filter((i) => i.recibido || i.recibido1 || i.recibido2)
     .reduce((acc, i) => {
@@ -54,17 +58,23 @@ export default function Dashboard() {
       return acc;
     }, 0);
 
+  // Solo gastos NO‑tarjeta
   const totalGastos = gastos.reduce((acc, g) => {
     const esTarjeta = g.metodoPago?.toLowerCase().includes("tarjeta");
     return esTarjeta ? acc : acc + g.monto;
   }, 0);
 
+  // Consumo con tarjeta
   const totalTarjeta = gastos.reduce((acc, g) => {
     const esTarjeta = g.metodoPago?.toLowerCase().includes("tarjeta");
     return esTarjeta ? acc + g.monto : acc;
   }, 0);
 
   const dineroDisponible = totalIngresos - totalGastos;
+
+  /* ──────────────────────────────────────────
+     Ingresos pendientes y vencimientos
+  ────────────────────────────────────────── */
 
   const ingresosPendientes = ingresos.filter((i) => {
     if (i.dividido) return !i.recibido1 || !i.recibido2;
@@ -101,6 +111,10 @@ export default function Dashboard() {
     );
   });
 
+  /* ──────────────────────────────────────────
+     Actividad reciente
+  ────────────────────────────────────────── */
+
   const acciones = [
     ...gastos.map((g) => ({
       tipo: "Gasto",
@@ -127,12 +141,22 @@ export default function Dashboard() {
     .sort((a, b) => new Date(b.fecha) - new Date(a.fecha))
     .slice(0, 5);
 
+  /* ──────────────────────────────────────────
+     Gastos por categoría (incluye Tarjeta)  // MOD
+  ────────────────────────────────────────── */
+
+  const CARD_CAT = "Tarjeta de Crédito"; // Ajusta si tu doc usa otro nombre
+
   const gastosPorCategoria = gastos.reduce((acc, g) => {
-    if (!acc[g.categoria]) acc[g.categoria] = 0;
-    acc[g.categoria] += g.monto;
+    const esTarjeta = g.metodoPago?.toLowerCase().includes("tarjeta");
+    const key = esTarjeta ? CARD_CAT : g.categoria;
+
+    if (!acc[key]) acc[key] = 0;
+    acc[key] += g.monto;
     return acc;
   }, {});
 
+  // Sumar también los vencimientos YA pagados
   const vencimientosPagadosPorCategoria = vencimientos.reduce((acc, v) => {
     if (v.pagado && v.categoria) {
       if (!acc[v.categoria]) acc[v.categoria] = 0;
@@ -149,13 +173,22 @@ export default function Dashboard() {
       (vencimientosPagadosPorCategoria[nombre] || 0);
   });
 
+  /* ──────────────────────────────────────────
+     Helper para mostrar ARS / USD
+  ────────────────────────────────────────── */
+
   const mostrarARSyUSD = (monto) => {
     const enUSD = (monto / cotizacionUSD).toFixed(2);
     return `${formatearMoneda(monto)} ARS / u$d ${enUSD}`;
   };
 
+  /* ──────────────────────────────────────────
+     Render
+  ────────────────────────────────────────── */
+
   return (
     <div>
+      {/* Alertas de vencimiento */}
       {proximosVencimientos.length > 0 && (
         <div className="mb-4 p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded">
           ⚠️ Tienes {proximosVencimientos.length} pago(s) por vencer en los
@@ -163,6 +196,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Bloque Dinero disponible */}
       <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow text-center mb-6">
         <p className="text-gray-500 dark:text-gray-300 text-sm">
           Dinero disponible
@@ -180,6 +214,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Indicadores Pendientes */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">
@@ -206,6 +241,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Actividad reciente */}
       <div className="mt-6 bg-white dark:bg-gray-800 p-4 rounded shadow">
         <h3 className="text-lg font-bold mb-2 text-gray-800 dark:text-white">
           Actividad reciente
@@ -223,6 +259,7 @@ export default function Dashboard() {
         </ul>
       </div>
 
+      {/* Tarjetas de categorías */}
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 mt-6">
         {categorias.map((cat) => (
           <CategoriaCard

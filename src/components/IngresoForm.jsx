@@ -1,19 +1,40 @@
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { convertirUsdAArsFijo } from "../utils/conversion";
+import { toast } from "react-toastify";
 
-export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
+export default function IngresoForm({
+  onAgregarIngreso,
+  onActualizarIngreso,
+  cotizacionUSD = 1,
+  editando = null
+}) {
   const [descripcion, setDescripcion] = useState("");
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
   const [fecha, setFecha] = useState(() =>
     new Date().toISOString().split("T")[0]
   );
-
   const [modo, setModo] = useState("completo");
   const [monto1, setMonto1] = useState("");
   const [monto2, setMonto2] = useState("");
   const [fecha2, setFecha2] = useState("");
+
+  useEffect(() => {
+    if (editando) {
+      setDescripcion(editando.descripcion || "");
+      setFecha(editando.fecha1?.toDate?.() ? editando.fecha1.toDate().toISOString().split("T")[0] : editando.fecha1);
+      setMontoARS(editando.montoARS?.toString() || "");
+      setMontoUSD(editando.montoUSD?.toString() || "");
+      setMonto1(editando.monto1?.toString() || "");
+      setMonto2(editando.monto2?.toString() || "");
+      setFecha2(
+        editando.fecha2?.toDate?.()
+          ? editando.fecha2.toDate().toISOString().split("T")[0]
+          : editando.fecha2 || ""
+      );
+      setModo(editando.dividido ? (editando.monto1 && editando.monto2 ? "manual" : "auto") : "completo");
+    }
+  }, [editando]);
 
   const calcularFechaSegundoPago = (fechaStr) => {
     const base = new Date(fechaStr);
@@ -55,7 +76,10 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
     const tieneARS = !isNaN(montoARSnum) && montoARSnum > 0;
     const tieneUSD = !isNaN(montoUSDnum) && montoUSDnum > 0;
 
-    if (!descripcion || (!tieneARS && !tieneUSD) || !fecha) return;
+    if (!descripcion || (!tieneARS && !tieneUSD) || !fecha) {
+      toast.error("❌ Completa todos los campos obligatorios.");
+      return;
+    }
 
     const moneda = tieneUSD ? "USD" : "ARS";
     const montoTotal = moneda === "USD" ? montoUSDnum : montoARSnum;
@@ -67,10 +91,14 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
       montoARS: tieneARS ? montoARSnum : null,
       montoUSD: tieneUSD ? montoUSDnum : null,
       fecha1: fecha,
-      recibido1: false,
-      recibido2: false,
+      recibido1: editando?.recibido1 || false,
+      recibido2: editando?.recibido2 || false,
       dividido: modo !== "completo",
     };
+
+    if (editando?.montoRecibido) {
+      ingreso.montoRecibido = editando.montoRecibido;
+    }
 
     if (tieneUSD) {
       const conversion = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
@@ -81,7 +109,6 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
     }
 
     if (modo === "completo") {
-      ingreso.montoRecibido = 0;
       ingreso.fecha2 = null;
     }
 
@@ -94,14 +121,30 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
     if (modo === "manual") {
       const m1 = parseFloat(monto1);
       const m2 = parseFloat(monto2);
-      if (isNaN(m1) || isNaN(m2)) return alert("Montos inválidos");
+      if (isNaN(m1) || isNaN(m2)) {
+        toast.error("❌ Montos inválidos en ingreso dividido manual");
+        return;
+      }
       ingreso.monto1 = m1;
       ingreso.monto2 = m2;
       ingreso.fecha2 = fecha2 || null;
     }
 
-    onAgregarIngreso(ingreso);
+    try {
+      if (editando && editando.id) {
+        ingreso.id = editando.id;
+        onActualizarIngreso(ingreso);
+        toast.success("✅ Ingreso actualizado");
+      } else {
+        onAgregarIngreso(ingreso);
+        toast.success("✅ Ingreso registrado correctamente");
+      }
+    } catch (error) {
+      console.error("❌ Error al guardar ingreso:", error);
+      toast.error("❌ Error al guardar el ingreso");
+    }
 
+    // Reset
     setDescripcion("");
     setMontoARS("");
     setMontoUSD("");
@@ -118,9 +161,10 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
       className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6"
     >
       <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
-        Registrar ingreso
+        {editando ? "Editar ingreso" : "Registrar ingreso"}
       </h2>
 
+      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
@@ -133,6 +177,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         />
       </div>
 
+      {/* Monto ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
@@ -145,6 +190,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         />
       </div>
 
+      {/* Monto USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
@@ -157,6 +203,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         />
       </div>
 
+      {/* Fecha */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha primer pago
@@ -169,6 +216,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         />
       </div>
 
+      {/* Tipo de ingreso */}
       <div className="mb-4">
         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Tipo de ingreso
@@ -251,7 +299,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         type="submit"
         className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 mt-2"
       >
-        Guardar ingreso
+        {editando ? "Actualizar ingreso" : "Guardar ingreso"}
       </button>
     </form>
   );

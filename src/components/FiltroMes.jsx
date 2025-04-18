@@ -1,39 +1,63 @@
-// components/FiltroMes.jsx
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import dayjs from "dayjs";
 
-export default function FiltroMes({ items, onFiltrar }) {
-  const [meses, setMeses] = useState([]);
-  const [mesSeleccionado, setMesSeleccionado] = useState("");
+export default function FiltroMes({
+  items = [],
+  campoFecha = "fecha",
+  onFiltrar = null,
+  onMesChange = null,
+}) {
+  const hoy = dayjs();
+  const [mesSeleccionado, setMesSeleccionado] = useState(hoy.format("YYYY-MM"));
 
   useEffect(() => {
-    const mesesUnicos = Array.from(
-      new Set(items.map((item) => dayjs(item.fecha).format("YYYY-MM")))
-    ).sort().reverse();
-    setMeses(mesesUnicos);
-  }, [items]);
+    if (onMesChange) onMesChange(mesSeleccionado);
 
-  useEffect(() => {
-    const filtrados = items.filter((item) =>
-      mesSeleccionado ? item.fecha.startsWith(mesSeleccionado) : true
-    );
-    onFiltrar(filtrados);
-  }, [mesSeleccionado, items, onFiltrar]);
+    if (onFiltrar) {
+      if (mesSeleccionado === "todos") {
+        onFiltrar(items);
+      } else {
+        const [año, mes] = mesSeleccionado.split("-");
+        const filtrados = items.filter((item) => {
+          const rawFecha = item[campoFecha];
+          if (!rawFecha) return false;
+          const fecha = dayjs(rawFecha.toDate?.() || rawFecha);
+          return (
+            fecha.year() === parseInt(año) && fecha.month() === parseInt(mes) - 1
+          );
+        });
+
+        onFiltrar(filtrados);
+      }
+    }
+  }, [mesSeleccionado, items, campoFecha, onFiltrar, onMesChange]);
+
+  const generarOpciones = () => {
+    const meses = [];
+    const inicio = hoy.subtract(12, "month");
+    for (let i = 0; i <= 12; i++) {
+      const f = inicio.add(i, "month");
+      meses.push(f.format("YYYY-MM"));
+    }
+    return meses;
+  };
 
   return (
-    <div className="mb-4">
-      <label className="block text-sm mb-1 text-gray-700 dark:text-gray-300">Filtrar por mes:</label>
+    <div className="mb-2">
+      <label className="block text-sm text-gray-300 mb-1">Filtrar por mes:</label>
       <select
         value={mesSeleccionado}
         onChange={(e) => setMesSeleccionado(e.target.value)}
-        className="p-2 border rounded dark:bg-gray-700 dark:text-white"
+        className="p-2 rounded border bg-gray-800 text-white"
       >
-        <option value="">Todos los meses</option>
-        {meses.map((mes) => (
-          <option key={mes} value={mes}>
-            {dayjs(mes + "-01").format("MMMM YYYY")}
-          </option>
-        ))}
+        <option value="todos">Todos los meses</option>
+        {generarOpciones()
+          .reverse()
+          .map((m) => (
+            <option key={m} value={m}>
+              {dayjs(m).format("MMMM YYYY")}
+            </option>
+          ))}
       </select>
     </div>
   );

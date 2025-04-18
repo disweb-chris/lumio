@@ -15,6 +15,8 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 function App() {
   const { user } = useAuth();
@@ -135,6 +137,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>
+        <ToastContainer position="top-right" autoClose={3000} />
       </Router>
     </div>
   );

@@ -1,4 +1,3 @@
-
 import { useEffect, useState } from "react";
 import { db } from "../firebase";
 import {
@@ -10,6 +9,7 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { convertirUsdAArsFijo } from "../utils/conversion";
+import { toast } from "react-toastify";
 
 export default function GastoForm({ cotizacionUSD }) {
   const [categoria, setCategoria] = useState("");
@@ -17,8 +17,8 @@ export default function GastoForm({ cotizacionUSD }) {
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
   const [descripcion, setDescripcion] = useState("");
-  const [fecha, setFecha] = useState(
-    () => new Date().toISOString().split("T")[0]
+  const [fecha, setFecha] = useState(() =>
+    new Date().toISOString().split("T")[0]
   );
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const [subMetodo, setSubMetodo] = useState("");
@@ -55,7 +55,10 @@ export default function GastoForm({ cotizacionUSD }) {
     const tieneARS = !isNaN(montoARSnum) && montoARSnum > 0;
     const tieneUSD = !isNaN(montoUSDnum) && montoUSDnum > 0;
 
-    if (!descripcion || (!tieneARS && !tieneUSD) || !fecha || !categoria) return;
+    if (!descripcion || (!tieneARS && !tieneUSD) || !fecha || !categoria) {
+      toast.error("❌ Completa todos los campos obligatorios.");
+      return;
+    }
 
     const metodoFinal =
       metodoPago === "Tarjeta de crédito" && subMetodo
@@ -82,9 +85,10 @@ export default function GastoForm({ cotizacionUSD }) {
 
     try {
       await addDoc(collection(db, "gastos"), nuevoGasto);
-      console.log("✅ Gasto guardado en Firebase");
+      toast.success("✅ Gasto guardado correctamente");
     } catch (error) {
       console.error("❌ Error al guardar en Firebase:", error);
+      toast.error("❌ Error al guardar el gasto");
     }
 
     setMontoARS("");
@@ -124,6 +128,7 @@ export default function GastoForm({ cotizacionUSD }) {
         Registrar gasto
       </h2>
 
+      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
@@ -137,6 +142,7 @@ export default function GastoForm({ cotizacionUSD }) {
         />
       </div>
 
+      {/* Categoría */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Categoría
@@ -154,6 +160,7 @@ export default function GastoForm({ cotizacionUSD }) {
         </select>
       </div>
 
+      {/* Monto ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
@@ -166,6 +173,7 @@ export default function GastoForm({ cotizacionUSD }) {
         />
       </div>
 
+      {/* Monto USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
@@ -178,6 +186,7 @@ export default function GastoForm({ cotizacionUSD }) {
         />
       </div>
 
+      {/* Método de pago */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Método de pago
@@ -199,6 +208,7 @@ export default function GastoForm({ cotizacionUSD }) {
         </select>
       </div>
 
+      {/* Submétodo si es tarjeta */}
       {metodoPago === "Tarjeta de crédito" && (
         <div className="mb-2">
           <label className="block text-sm text-gray-700 dark:text-gray-300">
@@ -219,6 +229,7 @@ export default function GastoForm({ cotizacionUSD }) {
         </div>
       )}
 
+      {/* Fecha */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha

@@ -1,8 +1,8 @@
-
 import { useState, useEffect } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
 import { convertirUsdAArsFijo } from "../utils/conversion";
+import { toast } from "react-toastify";
 
 export default function VencimientoForm({
   onAgregar,
@@ -96,7 +96,7 @@ export default function VencimientoForm({
     const tieneUSD = !isNaN(montoUSDnum) && montoUSDnum > 0;
 
     if (!descripcion || (!tieneARS && !tieneUSD) || !fecha || !categoria) {
-      alert("Completa todos los campos.");
+      toast.error("❌ Completa todos los campos obligatorios.");
       return;
     }
 
@@ -123,10 +123,17 @@ export default function VencimientoForm({
       }
     }
 
-    if (editando?.id) {
-      onActualizar({ ...nuevo, id: editando.id });
-    } else {
-      onAgregar(nuevo);
+    try {
+      if (editando?.id) {
+        onActualizar({ ...nuevo, id: editando.id });
+        toast.success("✅ Vencimiento actualizado");
+      } else {
+        onAgregar(nuevo);
+        toast.success("✅ Vencimiento agregado");
+      }
+    } catch (error) {
+      console.error("❌ Error al guardar vencimiento:", error);
+      toast.error("❌ Error al guardar el vencimiento");
     }
 
     setDescripcion("");
@@ -148,6 +155,7 @@ export default function VencimientoForm({
         {editando ? "Editar vencimiento" : "Nuevo vencimiento"}
       </h2>
 
+      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
@@ -157,10 +165,10 @@ export default function VencimientoForm({
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value)}
           className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
-          placeholder="Ej: Alquiler, Factura..."
         />
       </div>
 
+      {/* Categoría */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Categoría
@@ -179,6 +187,7 @@ export default function VencimientoForm({
         </select>
       </div>
 
+      {/* Monto ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
@@ -191,6 +200,7 @@ export default function VencimientoForm({
         />
       </div>
 
+      {/* Monto USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
@@ -203,6 +213,7 @@ export default function VencimientoForm({
         />
       </div>
 
+      {/* Método de pago */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Método de pago
@@ -244,6 +255,7 @@ export default function VencimientoForm({
         </div>
       )}
 
+      {/* Fecha */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha límite
@@ -256,6 +268,7 @@ export default function VencimientoForm({
         />
       </div>
 
+      {/* Recurrente */}
       <div className="mb-4 flex items-center gap-2">
         <input
           id="recurrente"
