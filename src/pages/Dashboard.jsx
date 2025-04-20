@@ -1,6 +1,13 @@
+// src/pages/Dashboard.jsx
 import { useState, useEffect } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+} from "firebase/firestore";
 import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import CategoriaCard from "../components/CategoriaCard";
 import { formatearMoneda } from "../utils/format";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
@@ -10,6 +17,9 @@ import dayjs from "dayjs";
 
 export default function Dashboard() {
   /* ───────── estados ───────── */
+  const { user } = useAuth();
+  const uid = user.uid;
+
   const [categorias, setCategorias] = useState([]);
   const [gastos, setGastos] = useState([]);
   const [ingresos, setIngresos] = useState([]);
@@ -32,22 +42,42 @@ export default function Dashboard() {
 
   /* ───────── listeners Firestore ───────── */
   useEffect(() => {
-    const unsubCat = onSnapshot(collection(db, "categorias"), (s) => {
+    // categorías del usuario
+    const qCat = query(
+      collection(db, "categorias"),
+      where("uid", "==", uid)
+    );
+    const unsubCat = onSnapshot(qCat, (s) => {
       setCategorias(s.docs.map((d) => ({ id: d.id, ...d.data() })));
       setLoaded((prev) => ({ ...prev, cat: true }));
     });
 
-    const unsubGas = onSnapshot(collection(db, "gastos"), (s) => {
+    // gastos del usuario
+    const qGas = query(
+      collection(db, "gastos"),
+      where("uid", "==", uid)
+    );
+    const unsubGas = onSnapshot(qGas, (s) => {
       setGastos(s.docs.map((d) => ({ id: d.id, ...d.data() })));
       setLoaded((prev) => ({ ...prev, gas: true }));
     });
 
-    const unsubIng = onSnapshot(collection(db, "ingresos"), (s) => {
+    // ingresos del usuario
+    const qIng = query(
+      collection(db, "ingresos"),
+      where("uid", "==", uid)
+    );
+    const unsubIng = onSnapshot(qIng, (s) => {
       setIngresos(s.docs.map((d) => ({ id: d.id, ...d.data() })));
       setLoaded((prev) => ({ ...prev, ing: true }));
     });
 
-    const unsubVen = onSnapshot(collection(db, "vencimientos"), (s) => {
+    // vencimientos del usuario
+    const qVen = query(
+      collection(db, "vencimientos"),
+      where("uid", "==", uid)
+    );
+    const unsubVen = onSnapshot(qVen, (s) => {
       setVencimientos(s.docs.map((d) => ({ id: d.id, ...d.data() })));
       setLoaded((prev) => ({ ...prev, ven: true }));
     });
@@ -60,7 +90,7 @@ export default function Dashboard() {
       unsubIng();
       unsubVen();
     };
-  }, []);
+  }, [uid]);
 
   /* helper spinner */
   const cargando =
@@ -79,8 +109,7 @@ export default function Dashboard() {
   const ingresosFiltrados = filtraPorMes(ingresos, "fecha1");
   const vencimientosFiltrados = filtraPorMes(vencimientos);
 
-  /* ───────── cálculos (idénticos pero con arrays filtrados) ───────── */
-
+  /* ───────── cálculos ───────── */
   const totalIngresos = ingresosFiltrados
     .filter((i) => i.montoRecibido || i.recibido1 || i.recibido2)
     .reduce((acc, i) => acc + (i.montoRecibido || 0), 0);
@@ -99,10 +128,16 @@ export default function Dashboard() {
 
   /* pendientes */
   const ingresosPendientes = ingresosFiltrados.filter(
-    (i) => (i.montoRecibido || 0) < (i.montoTotal || 0) * (i.moneda === "USD" ? cotizacionUSD : 1)
+    (i) =>
+      (i.montoRecibido || 0) <
+      (i.montoTotal || 0) * (i.moneda === "USD" ? cotizacionUSD : 1)
   );
   const totalPendiente = ingresosPendientes.reduce(
-    (acc, i) => acc + ((i.montoTotal || 0) * (i.moneda === "USD" ? cotizacionUSD : 1) - (i.montoRecibido || 0)),
+    (acc, i) =>
+      acc +
+      ((i.montoTotal || 0) *
+        (i.moneda === "USD" ? cotizacionUSD : 1) -
+        (i.montoRecibido || 0)),
     0
   );
 
@@ -112,7 +147,7 @@ export default function Dashboard() {
     0
   );
 
-  /* vencimientos por vencer en ≤ 3 días */
+  /* próximos vencimientos */
   const proximosVencimientos = vencPendientes.filter((v) => {
     const diff = dayjs(
       v.fecha?.toDate ? v.fecha.toDate() : v.fecha
@@ -120,15 +155,14 @@ export default function Dashboard() {
     return diff >= 0 && diff <= 3;
   });
 
-  /* gastos por categoría (para tarjetas de categorías) */
+  /* gastos por categoría */
   const gastosPorCategoria = gastosFiltrados.reduce((acc, g) => {
     const key = g.categoria;
-    if (!acc[key]) acc[key] = 0;
-    acc[key] += g.monto;
+    acc[key] = (acc[key] || 0) + g.monto;
     return acc;
   }, {});
 
-  /* mapping tarjeta → icono */
+  /* tarjeta → icono */
   const tarjetaIcon = {
     "Naranja X": "🟠",
     "Visa Santander": "🔵",
@@ -137,7 +171,7 @@ export default function Dashboard() {
     "Ualá Chris": "🟢",
   };
 
-  /* helper currency */
+  /* helper moneda */
   const mostrarARSyUSD = (m) =>
     `${formatearMoneda(m)} ARS / u$d ${(m / cotizacionUSD).toFixed(2)}`;
 
@@ -152,14 +186,12 @@ export default function Dashboard() {
 
   return (
     <div>
-      {/* selector mes */}
       <FiltroMes
         items={gastos}
         onMesChange={setMesSeleccionado}
         onFiltrar={() => {}}
       />
 
-      {/* alerta vencimiento */}
       {proximosVencimientos.length > 0 && (
         <div className="mb-4 p-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 rounded">
           ⚠️ Tienes {proximosVencimientos.length} pago(s) por vencer en los
@@ -167,7 +199,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* dinero disponible */}
       <div className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow text-center mb-6">
         <p className="text-gray-500 dark:text-gray-300 text-sm">
           Dinero disponible
@@ -180,12 +211,10 @@ export default function Dashboard() {
           {mostrarARSyUSD(dineroDisponible)}
         </p>
         <div className="text-sm text-purple-700 dark:text-purple-300 mt-2 flex items-center justify-center gap-2">
-          💳{" "}
-          <span className="font-medium">{mostrarARSyUSD(totalTarjeta)}</span>
+          💳 <span className="font-medium">{mostrarARSyUSD(totalTarjeta)}</span>
         </div>
       </div>
 
-      {/* indicadores pendientes */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">
@@ -198,7 +227,6 @@ export default function Dashboard() {
             {ingresosPendientes.length} ingreso(s)
           </p>
         </div>
-
         <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
           <p className="text-sm text-gray-500 dark:text-gray-300">
             Vencimientos pendientes
@@ -212,7 +240,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* tarjetas de categorías */}
       <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 mt-6">
         {categorias.map((cat) => (
           <CategoriaCard
@@ -228,7 +255,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* botón/modal cotización */}
       <CotizacionDolarModal />
     </div>
   );

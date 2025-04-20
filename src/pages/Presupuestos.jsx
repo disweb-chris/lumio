@@ -1,3 +1,4 @@
+// src/pages/Presupuestos.jsx
 import { useState, useEffect } from "react";
 import {
   collection,
@@ -6,13 +7,19 @@ import {
   deleteDoc,
   updateDoc,
   doc,
+  query,
+  where,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import { formatearMoneda } from "../utils/format";
 import CategoriaForm from "../components/CategoriaForm";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 
 export default function Presupuestos() {
+  const { user } = useAuth();
+  const uid = user.uid;
+
   const [categorias, setCategorias] = useState([]);
   const [editando, setEditando] = useState(null);
   const [nuevoNombre, setNuevoNombre] = useState("");
@@ -20,12 +27,12 @@ export default function Presupuestos() {
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "categorias"), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setCategorias(data);
+    const q = query(
+      collection(db, "categorias"),
+      where("uid", "==", uid)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setCategorias(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
 
     obtenerCotizacionUSD().then((valor) => {
@@ -33,14 +40,19 @@ export default function Presupuestos() {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [uid]);
 
-  const agregarCategoria = async (nueva) => {
+  const agregarCategoria = async ({ nombre, presupuesto }) => {
     try {
-      await addDoc(collection(db, "categorias"), nueva);
+      await addDoc(collection(db, "categorias"), {
+        nombre,
+        presupuesto,
+        uid, // importante para las reglas de seguridad
+      });
     } catch (error) {
+      console.error("Error al agregar categoría:", error);
       alert("Error al agregar categoría");
-      console.error(error);
+      console.error(error); // ← reinstaurado
     }
   };
 
@@ -63,17 +75,19 @@ export default function Presupuestos() {
       setNuevoPresupuesto("");
     } catch (error) {
       console.error("❌ Error al actualizar categoría:", error);
+      alert("Error al actualizar categoría");
+      console.error(error);
     }
   };
 
   const eliminarCategoria = async (id) => {
-    const confirmado = window.confirm("¿Eliminar esta categoría?");
-    if (!confirmado) return;
-
+    if (!window.confirm("¿Eliminar esta categoría?")) return;
     try {
       await deleteDoc(doc(db, "categorias", id));
     } catch (error) {
       console.error("❌ Error al eliminar categoría:", error);
+      alert("Error al eliminar categoría");
+      console.error(error);
     }
   };
 
@@ -122,7 +136,11 @@ export default function Presupuestos() {
                     Guardar
                   </button>
                   <button
-                    onClick={() => setEditando(null)}
+                    onClick={() => {
+                      setEditando(null);
+                      setNuevoNombre("");
+                      setNuevoPresupuesto("");
+                    }}
                     className="bg-gray-500 text-white px-3 py-1 rounded"
                   >
                     Cancelar

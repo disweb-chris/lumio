@@ -1,3 +1,4 @@
+// src/pages/Gastos.jsx
 import { useState, useEffect } from "react";
 import {
   collection,
@@ -8,15 +9,20 @@ import {
   doc,
   Timestamp,
   query,
+  where,
   orderBy,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import GastoForm from "../components/GastoForm";
 import { formatearMoneda } from "../utils/format";
 import dayjs from "dayjs";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 
 export default function Gastos() {
+  const { user } = useAuth();
+  const uid = user.uid;
+
   const [gastos, setGastos] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
   const [editando, setEditando] = useState(null);
@@ -24,19 +30,32 @@ export default function Gastos() {
 
   /* carga datos */
   useEffect(() => {
-    const q = query(collection(db, "gastos"), orderBy("fecha", "desc"));
+    if (!uid) return;
+    const q = query(
+      collection(db, "gastos"),
+      where("uid", "==", uid),
+      orderBy("fecha", "desc")
+    );
     const unsub = onSnapshot(q, (snap) =>
       setGastos(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     );
     obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
     return () => unsub();
-  }, []);
+  }, [uid]);
 
   /* CRUD */
   const agregarGasto = async (nuevo) => {
+    const fechaValida =
+      nuevo.fecha instanceof Date ? nuevo.fecha : new Date(nuevo.fecha);
+    console.log("Nuevo gasto a guardar:", { ...nuevo, uid });
+
+    console.log("🧪 UID en addDoc:", uid);
+    console.log("🧪 Datos enviados:", nuevo);
+
     await addDoc(collection(db, "gastos"), {
       ...nuevo,
-      fecha: Timestamp.fromDate(new Date(nuevo.fecha)),
+      uid,
+      fecha: Timestamp.fromDate(fechaValida),
       timestamp: Timestamp.now(),
     });
   };
@@ -47,8 +66,7 @@ export default function Gastos() {
   };
 
   const eliminarGasto = async (id) =>
-    window.confirm("¿Eliminar este gasto?") &&
-    deleteDoc(doc(db, "gastos", id));
+    window.confirm("¿Eliminar este gasto?") && deleteDoc(doc(db, "gastos", id));
 
   /* agrupación */
   const gastosPorMes = gastos.reduce((acc, g) => {
@@ -62,11 +80,9 @@ export default function Gastos() {
       prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
     );
 
-  /* helpers UI */
   const mostrarARSyUSD = (m) =>
     `$${formatearMoneda(m)} ARS / u$d ${(m / cotizacionUSD).toFixed(2)}`;
 
-  /* mapping method → badge classes */
   const badge = {
     Efectivo: "bg-green-100 text-green-800",
     Transferencia: "bg-blue-100 text-blue-800",
@@ -80,7 +96,6 @@ export default function Gastos() {
     return badge[metodo] || badge.Default;
   };
 
-  /* render */
   return (
     <div>
       <GastoForm
@@ -100,7 +115,7 @@ export default function Gastos() {
               onClick={() => toggleMes(mes)}
               className="w-full text-left bg-gray-200 dark:bg-gray-700 px-3 py-2 rounded font-semibold"
             >
-              {dayjs(mes + "-01").format("MMMM YYYY")} (
+              {dayjs(mes + "-01").format("MMMM YYYY")} (
               {gastosPorMes[mes].length}) {abiertos.includes(mes) ? "▲" : "▼"}
             </button>
 
@@ -125,7 +140,6 @@ export default function Gastos() {
                         Categoría: {g.categoria}
                       </p>
 
-                      {/* badge método */}
                       <span
                         className={`inline-block text-xs px-2 py-1 rounded-full mt-1 ${getBadgeCls(
                           g.metodoPago

@@ -1,16 +1,16 @@
 // src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getAuth } from "firebase/auth"; 
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAgeURpwUx5bhSd7BFAsv1uwr4niz4h5iE",
-  authDomain: "lumio-6651c.firebaseapp.com",
-  projectId: "lumio-6651c",
-  storageBucket: "lumio-6651c.firebasestorage.app",
-  messagingSenderId: "281410343977",
-  appId: "1:281410343977:web:8e501ce0d5b4e041573838",
-  measurementId: "G-RBRLJ4EM2B",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);

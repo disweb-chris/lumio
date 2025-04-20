@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import {
   collection,
-  addDoc,
   Timestamp,
   onSnapshot,
   query,
   orderBy,
+  where,
 } from "firebase/firestore";
 import { convertirUsdAArsFijo } from "../utils/conversion";
 import { toast } from "react-toastify";
@@ -18,32 +19,42 @@ export default function GastoForm({
   onActualizarGasto,
   onCancelEdit,
 }) {
-  /* ───────── estados ───────── */
+  const { user } = useAuth();
+  const uid = user?.uid;
+
   const [categoria, setCategoria] = useState("");
   const [categorias, setCategorias] = useState([]);
 
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
-
   const [descripcion, setDescripcion] = useState("");
   const [fecha, setFecha] = useState(() =>
     new Date().toISOString().split("T")[0]
   );
-
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const [subMetodo, setSubMetodo] = useState("");
 
-  /* ───────── cargar categorías ───────── */
+  /* ───────── cargar categorías del usuario ───────── */
   useEffect(() => {
-    const q = query(collection(db, "categorias"), orderBy("nombre", "asc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setCategorias(data);
-      if (data.length && !categoria) setCategoria(data[0].nombre);
-    });
-    return () => unsub();
-    // eslint-disable-next-line
-  }, []);
+    if (!user || !uid) return;
+  
+    try {
+      const q = query(
+        collection(db, "categorias"),
+        where("uid", "==", uid),
+        orderBy("nombre", "asc")
+      );
+      const unsub = onSnapshot(q, (snap) => {
+        const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setCategorias(data);
+        if (data.length && !categoria) setCategoria(data[0].nombre);
+      });
+      return () => unsub();
+    } catch (err) {
+      console.error("Error al cargar categorías:", err.message);
+    }
+  }, [uid, user]);
+  
 
   /* ───────── cargar datos al editar ───────── */
   useEffect(() => {
@@ -65,18 +76,14 @@ export default function GastoForm({
           ? editando.metodoPago.split(":")[1]?.trim()
           : ""
       );
-
       setMontoARS(editando.monto?.toString() || "");
       setMontoUSD(
         editando.montoUSD?.toString() ||
-          (editando.monto
-            ? (editando.monto / cotizacionUSD).toFixed(2)
-            : "")
+          (editando.monto ? (editando.monto / cotizacionUSD).toFixed(2) : "")
       );
     } else {
       resetForm();
     }
-    // eslint-disable-next-line
   }, [editando]);
 
   const resetForm = () => {
@@ -89,22 +96,22 @@ export default function GastoForm({
     setFecha(new Date().toISOString().split("T")[0]);
   };
 
-  /* ───────── helpers conversión ───────── */
   const actualizarDesdeARS = (v) => {
     setMontoARS(v);
     const num = parseFloat(v);
-    if (!isNaN(num) && cotizacionUSD > 0) setMontoUSD((num / cotizacionUSD).toFixed(2));
+    if (!isNaN(num) && cotizacionUSD > 0)
+      setMontoUSD((num / cotizacionUSD).toFixed(2));
     else setMontoUSD("");
   };
 
   const actualizarDesdeUSD = (v) => {
     setMontoUSD(v);
     const num = parseFloat(v);
-    if (!isNaN(num) && cotizacionUSD > 0) setMontoARS((num * cotizacionUSD).toFixed(2));
+    if (!isNaN(num) && cotizacionUSD > 0)
+      setMontoARS((num * cotizacionUSD).toFixed(2));
     else setMontoARS("");
   };
 
-  /* ───────── submit (alta / edición) ───────── */
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -124,11 +131,11 @@ export default function GastoForm({
         : metodoPago;
 
     const base = {
+      uid,
       categoria,
       descripcion,
       metodoPago: metodoFinal,
-      fecha: Timestamp.fromDate(new Date(fecha)),
-      timestamp: Timestamp.now(),
+      fecha, // se convierte a Date en Gastos.jsx
       monto: tieneARS ? montoARSnum : null,
       montoUSD: tieneUSD ? montoUSDnum : null,
     };
@@ -156,7 +163,6 @@ export default function GastoForm({
     }
   };
 
-  /* ───────── subopciones ───────── */
   const subOpcionesTarjeta = [
     "Ualá Emma",
     "Ualá Chris",
@@ -165,7 +171,6 @@ export default function GastoForm({
     "Amex Santander",
   ];
 
-  /* ───────── JSX ───────── */
   return (
     <form
       onSubmit={handleSubmit}
@@ -175,7 +180,6 @@ export default function GastoForm({
         {editando ? "Editar gasto" : "Registrar gasto"}
       </h2>
 
-      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
@@ -189,7 +193,6 @@ export default function GastoForm({
         />
       </div>
 
-      {/* Categoría */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Categoría
@@ -207,7 +210,6 @@ export default function GastoForm({
         </select>
       </div>
 
-      {/* Monto ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
@@ -220,7 +222,6 @@ export default function GastoForm({
         />
       </div>
 
-      {/* Monto USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
@@ -233,7 +234,6 @@ export default function GastoForm({
         />
       </div>
 
-      {/* Método de pago */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Método de pago
@@ -253,7 +253,6 @@ export default function GastoForm({
         </select>
       </div>
 
-      {/* Submétodo */}
       {metodoPago === "Tarjeta de crédito" && (
         <div className="mb-2">
           <label className="block text-sm text-gray-700 dark:text-gray-300">
@@ -274,7 +273,6 @@ export default function GastoForm({
         </div>
       )}
 
-      {/* Fecha */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha
@@ -287,7 +285,6 @@ export default function GastoForm({
         />
       </div>
 
-      {/* botones */}
       <div className="flex gap-3 mt-3">
         <button
           type="submit"
