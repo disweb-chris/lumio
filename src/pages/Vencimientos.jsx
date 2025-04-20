@@ -1,3 +1,4 @@
+// src/pages/Vencimientos.jsx
 import { useState, useEffect } from "react";
 import {
   collection,
@@ -8,6 +9,7 @@ import {
   doc,
   Timestamp,
   query,
+  where,
   orderBy,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -17,8 +19,13 @@ import AlertaVencimiento from "../components/AlertaVencimiento";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import FiltroMes from "../components/FiltroMes";
 import dayjs from "dayjs";
+import { useAuth } from "../context/AuthContext";
 
 export default function Vencimientos() {
+  // ① Obtenemos el uid del usuario autenticado
+  const { user } = useAuth();
+  const uid = user.uid;
+
   const [vencimientos, setVencimientos] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
   const [editando, setEditando] = useState(null);
@@ -30,19 +37,26 @@ export default function Vencimientos() {
   const [verPagados, setVerPagados] = useState(false);
 
   useEffect(() => {
-    const q = query(collection(db, "vencimientos"), orderBy("fecha", "asc"));
+    // ② Filtramos solo los vencimientos de este usuario
+    const q = query(
+      collection(db, "vencimientos"),
+      where("uid", "==", uid),
+      orderBy("fecha", "asc")
+    );
     const unsub = onSnapshot(q, (snap) =>
       setVencimientos(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     );
 
     obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
     return () => unsub();
-  }, []);
+  }, [uid]);
 
-  /* CRUD (sin cambios) */
+  /* CRUD */
   const agregarVencimiento = async (nuevo) => {
+    // ③ Guardamos también el uid en el documento
     await addDoc(collection(db, "vencimientos"), {
       ...nuevo,
+      uid,
       pagado: false,
       fecha: Timestamp.fromDate(new Date(nuevo.fecha)),
     });
@@ -58,7 +72,6 @@ export default function Vencimientos() {
   };
 
   const togglePagado = async (id, actual, v) => {
-    // idéntico a tu lógica existente
     try {
       const nuevoEstado = !actual;
 
@@ -67,6 +80,7 @@ export default function Vencimientos() {
       }
 
       if (nuevoEstado) {
+        // Cuando marcamos pagado, creamos el gasto
         const docRef = await addDoc(collection(db, "gastos"), {
           categoria: v.categoria || "Vencimientos",
           descripcion: v.descripcion,
@@ -74,6 +88,7 @@ export default function Vencimientos() {
           metodoPago: v.metodoPago || "Sin especificar",
           fecha: v.fecha,
           timestamp: Timestamp.now(),
+          uid,  // también guardamos el uid aquí
         });
 
         await updateDoc(doc(db, "vencimientos", id), {
@@ -81,8 +96,11 @@ export default function Vencimientos() {
           idGasto: docRef.id,
         });
 
+        // Si es recurrente, creamos el siguiente vencimiento
         if (v.recurrente) {
-          const fechaActual = v.fecha?.toDate ? v.fecha.toDate() : new Date(v.fecha);
+          const fechaActual = v.fecha?.toDate
+            ? v.fecha.toDate()
+            : new Date(v.fecha);
           const proxima = new Date(
             fechaActual.getFullYear(),
             fechaActual.getMonth() + 1,
@@ -97,6 +115,7 @@ export default function Vencimientos() {
             recurrente: true,
             categoria: v.categoria || "Vencimientos",
             fecha: Timestamp.fromDate(proxima),
+            uid,  // y aquí también
           });
         }
       } else {
@@ -143,7 +162,6 @@ export default function Vencimientos() {
           onMesChange={setMesSeleccionado}
           onFiltrar={() => {}}
         />
-
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"

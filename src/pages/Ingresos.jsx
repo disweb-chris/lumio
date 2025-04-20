@@ -1,3 +1,4 @@
+// src/pages/Ingresos.jsx
 import { useState, useEffect } from "react";
 import {
   collection,
@@ -8,6 +9,7 @@ import {
   deleteDoc,
   Timestamp,
   query,
+  where,
   orderBy,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -15,8 +17,13 @@ import { formatearMoneda } from "../utils/format";
 import IngresoForm from "../components/IngresoForm";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import dayjs from "dayjs";
+import { useAuth } from "../context/AuthContext";
 
 export default function Ingresos() {
+  // ① Obtenemos el uid del usuario autenticado
+  const { user } = useAuth();
+  const uid = user.uid;
+
   const [ingresos, setIngresos] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
@@ -25,7 +32,12 @@ export default function Ingresos() {
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
-    const q = query(collection(db, "ingresos"), orderBy("fecha1", "desc"));
+    // ② Filtramos solo los ingresos cuyo campo `uid` coincida
+    const q = query(
+      collection(db, "ingresos"),
+      where("uid", "==", uid),
+      orderBy("fecha1", "desc")
+    );
     const unsub = onSnapshot(q, (snap) => {
       setIngresos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       setCargando(false);
@@ -33,7 +45,7 @@ export default function Ingresos() {
 
     obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
     return () => unsub();
-  }, []);
+  }, [uid]);
 
   /* helpers */
   const mostrarARSyUSD = (monto, moneda = "ARS") => {
@@ -49,10 +61,14 @@ export default function Ingresos() {
 
   /* altas */
   const agregarIngreso = async (nuevo) => {
+    // ③ Guardamos también el uid en el documento
     await addDoc(collection(db, "ingresos"), {
       ...nuevo,
+      uid,
       fecha1: Timestamp.fromDate(new Date(nuevo.fecha1)),
-      fecha2: nuevo.fecha2 ? Timestamp.fromDate(new Date(nuevo.fecha2)) : null,
+      fecha2: nuevo.fecha2
+        ? Timestamp.fromDate(new Date(nuevo.fecha2))
+        : null,
     });
   };
 
