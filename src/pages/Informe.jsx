@@ -1,3 +1,4 @@
+// src/pages/Informe.jsx
 import { useState, useEffect } from "react";
 import {
   PieChart,
@@ -13,11 +14,12 @@ import {
   Legend,
 } from "recharts";
 import { db } from "../firebase";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import dayjs from "dayjs";
 import FiltroMes from "../components/FiltroMes";
 import { formatearMoneda } from "../utils/format";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
+import { useAuth } from "../context/AuthContext";
 
 const COLORS = [
   "#4F46E5",
@@ -29,110 +31,107 @@ const COLORS = [
 ];
 
 export default function Informe() {
+  const { user } = useAuth();
+  const uid = user.uid;
+
   const [gastos, setGastos] = useState([]);
   const [vencimientos, setVencimientos] = useState([]);
   const [gastosFiltrados, setGastosFiltrados] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
-    const unsubGastos = onSnapshot(collection(db, "gastos"), (snap) => {
-      const data = snap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setGastos(data);
+    // Sólo los gastos de este usuario
+    const qGastos = query(
+      collection(db, "gastos"),
+      where("uid", "==", uid)
+    );
+    const unsubG = onSnapshot(qGastos, (snap) => {
+      setGastos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
 
-    const unsubVenc = onSnapshot(collection(db, "vencimientos"), (snap) => {
-      const data = snap.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setVencimientos(data);
+    // Sólo los vencimientos de este usuario
+    const qVenc = query(
+      collection(db, "vencimientos"),
+      where("uid", "==", uid)
+    );
+    const unsubV = onSnapshot(qVenc, (snap) => {
+      setVencimientos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
 
-    obtenerCotizacionUSD().then((valor) => {
-      if (valor) setCotizacionUSD(valor);
-    });
+    obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
 
     return () => {
-      unsubGastos();
-      unsubVenc();
+      unsubG();
+      unsubV();
     };
-  }, []);
+  }, [uid]);
 
   const mostrarARSyUSD = (monto) => {
     const enUSD = (monto / cotizacionUSD).toFixed(2);
     return `${formatearMoneda(monto)} ARS / u$d ${enUSD}`;
   };
 
+  // Total de consumo con tarjeta para el mes filtrado
   const totalTarjeta = gastosFiltrados.reduce((acc, g) => {
-    const esTarjeta = g.metodoPago?.toLowerCase().includes("tarjeta");
-    return esTarjeta ? acc + g.monto : acc;
+    return g.metodoPago?.toLowerCase().includes("tarjeta")
+      ? acc + g.monto
+      : acc;
   }, 0);
 
+  // Vencimientos filtrados para el mismo mes que los gastos filtrados
   const vencimientosFiltrados = vencimientos.filter((v) => {
-    if (!v.pagado || !v.fecha) return false;
-    if (!gastosFiltrados.length) return false;
-    const mesReferencia = dayjs(
+    if (!v.pagado || !v.fecha || gastosFiltrados.length === 0) return false;
+    const mesRef = dayjs(
       gastosFiltrados[0].fecha?.toDate?.() || gastosFiltrados[0].fecha
     ).format("YYYY-MM");
-    const mesVenc = dayjs(v.fecha?.toDate?.() || v.fecha).format("YYYY-MM");
-    return mesVenc === mesReferencia;
+    const mesV = dayjs(v.fecha?.toDate?.() || v.fecha).format("YYYY-MM");
+    return mesV === mesRef;
   });
 
+  // Agrupar gastos y vencimientos por categoría
   const gastosPorCategoria = {};
-
   gastosFiltrados.forEach((g) => {
     if (!g.categoria) return;
-    gastosPorCategoria[g.categoria] =
-      (gastosPorCategoria[g.categoria] || 0) + g.monto;
+    gastosPorCategoria[g.categoria] = (gastosPorCategoria[g.categoria] || 0) + g.monto;
   });
-
   vencimientosFiltrados.forEach((v) => {
     if (!v.categoria) return;
-    gastosPorCategoria[v.categoria] =
-      (gastosPorCategoria[v.categoria] || 0) + v.monto;
+    gastosPorCategoria[v.categoria] = (gastosPorCategoria[v.categoria] || 0) + v.monto;
   });
 
-  const data = Object.entries(gastosPorCategoria).map(([name, value]) => ({
+  const dataPie = Object.entries(gastosPorCategoria).map(([name, value]) => ({
     name,
     value,
   }));
+  const totalPie = dataPie.reduce((sum, d) => sum + d.value, 0);
 
-  const total = data.reduce((acc, d) => acc + d.value, 0);
-
+  // Evolución mensual de todos los gastos
   const gastosPorMes = gastos.reduce((acc, gasto) => {
     const mes = dayjs(
-      gasto.fecha?.toDate ? gasto.fecha.toDate() : gasto.fecha
+      gasto.fecha?.toDate?.() || gasto.fecha
     ).format("YYYY-MM");
     acc[mes] = (acc[mes] || 0) + gasto.monto;
     return acc;
   }, {});
-
-  const dataLineChart = Object.entries(gastosPorMes).map(([mes, total]) => ({
+  const dataLine = Object.entries(gastosPorMes).map(([mes, total]) => ({
     mes: dayjs(mes + "-01").format("MMM YYYY"),
     total,
   }));
 
-  const consumoPorMetodo = gastos.reduce((acc, gasto) => {
-    const metodo = gasto.metodoPago || "Sin especificar";
-    if (!acc[metodo]) acc[metodo] = 0;
-    acc[metodo] += gasto.monto;
+  // Consumo por método de pago
+  const consumoPorMetodo = gastos.reduce((acc, g) => {
+    const m = g.metodoPago || "Sin especificar";
+    acc[m] = (acc[m] || 0) + g.monto;
     return acc;
   }, {});
-
+  // Desglose por tarjeta
   const desglosePorTarjeta = {};
-
-  gastos.forEach((gasto) => {
-    const metodo = gasto.metodoPago || "";
-    if (metodo.startsWith("Tarjeta:")) {
-      const tarjeta = metodo.split(":")[1].trim();
-      if (!desglosePorTarjeta[tarjeta]) desglosePorTarjeta[tarjeta] = {};
-      const cat = gasto.categoria || "Sin categoría";
-      if (!desglosePorTarjeta[tarjeta][cat])
-        desglosePorTarjeta[tarjeta][cat] = 0;
-      desglosePorTarjeta[tarjeta][cat] += gasto.monto;
+  gastos.forEach((g) => {
+    if (g.metodoPago?.startsWith("Tarjeta:")) {
+      const t = g.metodoPago.split(":")[1].trim();
+      desglosePorTarjeta[t] = desglosePorTarjeta[t] || {};
+      desglosePorTarjeta[t][g.categoria || "Sin categoría"] =
+        (desglosePorTarjeta[t][g.categoria] || 0) + g.monto;
     }
   });
 
@@ -151,7 +150,7 @@ export default function Informe() {
         </div>
       )}
 
-      {total === 0 ? (
+      {totalPie === 0 ? (
         <p className="text-gray-600 dark:text-gray-300">
           No hay gastos registrados para este mes.
         </p>
@@ -160,7 +159,7 @@ export default function Informe() {
           <ResponsiveContainer>
             <PieChart>
               <Pie
-                data={data}
+                data={dataPie}
                 dataKey="value"
                 nameKey="name"
                 cx="50%"
@@ -170,27 +169,27 @@ export default function Informe() {
                   `${name} (${(percent * 100).toFixed(0)}%)`
                 }
               >
-                {data.map((_, index) => (
-                  <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                {dataPie.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
                 ))}
               </Pie>
-              <Tooltip formatter={(value) => mostrarARSyUSD(value)} />
+              <Tooltip formatter={(v) => mostrarARSyUSD(v)} />
             </PieChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {dataLineChart.length > 0 && (
+      {dataLine.length > 0 && (
         <div className="w-full h-80 mt-12">
           <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
             Evolución mensual
           </h3>
           <ResponsiveContainer>
-            <LineChart data={dataLineChart}>
+            <LineChart data={dataLine}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="mes" />
               <YAxis />
-              <Tooltip formatter={(value) => mostrarARSyUSD(value)} />
+              <Tooltip formatter={(v) => mostrarARSyUSD(v)} />
               <Legend />
               <Line
                 type="monotone"
@@ -203,7 +202,7 @@ export default function Informe() {
         </div>
       )}
 
-      {data.length > 0 && (
+      {dataPie.length > 0 && (
         <div className="mt-12">
           <h3 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
             Resumen por categoría
@@ -217,16 +216,11 @@ export default function Informe() {
               </tr>
             </thead>
             <tbody>
-              {data.map((item, i) => (
-                <tr
-                  key={i}
-                  className="border-t border-gray-300 dark:border-gray-600"
-                >
+              {dataPie.map((item, i) => (
+                <tr key={i} className="border-t border-gray-300 dark:border-gray-600">
                   <td className="px-4 py-2">{item.name}</td>
                   <td className="px-4 py-2">{mostrarARSyUSD(item.value)}</td>
-                  <td className="px-4 py-2">
-                    {((item.value / total) * 100).toFixed(1)}%
-                  </td>
+                  <td className="px-4 py-2">{((item.value / totalPie) * 100).toFixed(1)}%</td>
                 </tr>
               ))}
             </tbody>
@@ -246,15 +240,15 @@ export default function Informe() {
           ))}
         </ul>
 
-        {Object.entries(desglosePorTarjeta).map(([tarjeta, categorias], i) => (
+        {Object.entries(desglosePorTarjeta).map(([tarjeta, cats], i) => (
           <div key={i} className="mb-6">
             <h4 className="text-lg font-bold text-purple-700 dark:text-purple-300">
               💳 {tarjeta}
             </h4>
             <ul className="pl-4 mt-1 list-disc text-sm text-gray-700 dark:text-gray-300">
-              {Object.entries(categorias).map(([categoria, monto], j) => (
+              {Object.entries(cats).map(([cat, monto], j) => (
                 <li key={j}>
-                  {categoria}: {mostrarARSyUSD(monto)}
+                  {cat}: {mostrarARSyUSD(monto)}
                 </li>
               ))}
             </ul>

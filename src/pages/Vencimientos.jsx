@@ -88,7 +88,7 @@ export default function Vencimientos() {
           metodoPago: v.metodoPago || "Sin especificar",
           fecha: v.fecha,
           timestamp: Timestamp.now(),
-          uid,  // también guardamos el uid aquí
+          uid, // también guardamos el uid aquí
         });
 
         await updateDoc(doc(db, "vencimientos", id), {
@@ -115,7 +115,7 @@ export default function Vencimientos() {
             recurrente: true,
             categoria: v.categoria || "Vencimientos",
             fecha: Timestamp.fromDate(proxima),
-            uid,  // y aquí también
+            uid, // y aquí también
           });
         }
       } else {
