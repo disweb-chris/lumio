@@ -18,17 +18,17 @@ import GastoForm from "../components/GastoForm";
 import { formatearMoneda } from "../utils/format";
 import dayjs from "dayjs";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
+import { convertirUsdAArsFijo, convertirArsAUsdFijo } from "../utils/conversion";
 
 export default function Gastos() {
   const { user } = useAuth();
-  const uid = user.uid;
+  const uid = user?.uid;
 
   const [gastos, setGastos] = useState([]);
-  const [cotizacionUSD, setCotizacionUSD] = useState(1);
   const [editando, setEditando] = useState(null);
   const [abiertos, setAbiertos] = useState([dayjs().format("YYYY-MM")]);
+  const [cargando, setCargando] = useState(true);
 
-  /* carga datos */
   useEffect(() => {
     if (!uid) return;
     const q = query(
@@ -36,70 +36,113 @@ export default function Gastos() {
       where("uid", "==", uid),
       orderBy("fecha", "desc")
     );
-    const unsub = onSnapshot(q, (snap) =>
-      setGastos(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setGastos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setCargando(false);
+      },
+      (err) => console.warn("Error al cargar gastos:", err)
     );
-    obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
     return () => unsub();
   }, [uid]);
 
-  /* CRUD */
+  // Agregar gasto con conversión fija
   const agregarGasto = async (nuevo) => {
-    const fechaValida =
-      nuevo.fecha instanceof Date ? nuevo.fecha : new Date(nuevo.fecha);
-    console.log("Nuevo gasto a guardar:", { ...nuevo, uid });
-
-    console.log("🧪 UID en addDoc:", uid);
-    console.log("🧪 Datos enviados:", nuevo);
-
-    await addDoc(collection(db, "gastos"), {
-      ...nuevo,
+    const cot = await obtenerCotizacionUSD();
+    const docData = {
       uid,
-      fecha: Timestamp.fromDate(fechaValida),
+      categoria: nuevo.categoria,
+      descripcion: nuevo.descripcion,
+      metodoPago: nuevo.metodoPago,
+      fecha: Timestamp.fromDate(
+        nuevo.fecha instanceof Date ? nuevo.fecha : new Date(nuevo.fecha)
+      ),
       timestamp: Timestamp.now(),
-    });
+    };
+    if (nuevo.montoUSD != null) {
+      const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
+      Object.assign(docData, {
+        moneda: "USD",
+        montoUSD: parseFloat(conv.montoUSD),
+        montoARSConvertido: parseFloat(conv.montoARSConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+      });
+    } else {
+      const conv2 = convertirArsAUsdFijo(nuevo.monto, cot);
+      Object.assign(docData, {
+        moneda: "ARS",
+        montoARS: parseFloat(conv2.montoARS),
+        montoUSDConvertido: parseFloat(conv2.montoUSDConvertido),
+        cotizacionAlMomento: parseFloat(conv2.cotizacionAlMomento),
+      });
+    }
+    await addDoc(collection(db, "gastos"), docData);
   };
 
-  const actualizarGasto = async (g) => {
-    await updateDoc(doc(db, "gastos", g.id), g);
+  // Actualizar gasto recalculando conversión
+  const actualizarGasto = async (nuevo) => {
+    const cot = await obtenerCotizacionUSD();
+    const ref = doc(db, "gastos", nuevo.id);
+    const updated = {
+      categoria: nuevo.categoria,
+      descripcion: nuevo.descripcion,
+      metodoPago: nuevo.metodoPago,
+      fecha: Timestamp.fromDate(
+        nuevo.fecha instanceof Date ? nuevo.fecha : new Date(nuevo.fecha)
+      ),
+    };
+    if (nuevo.montoUSD != null) {
+      const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
+      Object.assign(updated, {
+        moneda: "USD",
+        montoUSD: parseFloat(conv.montoUSD),
+        montoARSConvertido: parseFloat(conv.montoARSConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+      });
+      updated.montoARS = null;
+      updated.montoUSDConvertido = null;
+    } else {
+      const conv2 = convertirArsAUsdFijo(nuevo.monto, cot);
+      Object.assign(updated, {
+        moneda: "ARS",
+        montoARS: parseFloat(conv2.montoARS),
+        montoUSDConvertido: parseFloat(conv2.montoUSDConvertido),
+        cotizacionAlMomento: parseFloat(conv2.cotizacionAlMomento),
+      });
+      updated.montoUSD = null;
+      updated.montoARSConvertido = null;
+    }
+    await updateDoc(ref, updated);
     setEditando(null);
   };
 
-  const eliminarGasto = async (id) =>
-    window.confirm("¿Eliminar este gasto?") && deleteDoc(doc(db, "gastos", id));
+  const eliminarGasto = async (id) => {
+    if (window.confirm("¿Eliminar este gasto?")) {
+      await deleteDoc(doc(db, "gastos", id));
+    }
+  };
 
-  /* agrupación */
+  // Agrupar por mes con fecha robusta
   const gastosPorMes = gastos.reduce((acc, g) => {
-    const mes = dayjs(g.fecha?.toDate?.() || g.fecha).format("YYYY-MM");
+    const raw = g.fecha;
+    const date = raw.toDate ? raw.toDate() : raw instanceof Date ? raw : new Date(raw);
+    const mes = dayjs(date).format("YYYY-MM");
     (acc[mes] ??= []).push(g);
     return acc;
   }, {});
 
-  const toggleMes = (m) =>
-    setAbiertos((prev) =>
-      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
+  if (cargando) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-500">
+        Cargando gastos…
+      </div>
     );
-
-  const mostrarARSyUSD = (m) =>
-    `$${formatearMoneda(m)} ARS / u$d ${(m / cotizacionUSD).toFixed(2)}`;
-
-  const badge = {
-    Efectivo: "bg-green-100 text-green-800",
-    Transferencia: "bg-blue-100 text-blue-800",
-    "Mercado Pago": "bg-amber-100 text-amber-800",
-    Tarjeta: "bg-purple-100 text-purple-800",
-    Default: "bg-gray-200 text-gray-800",
-  };
-
-  const getBadgeCls = (metodo) => {
-    if (metodo?.startsWith("Tarjeta")) return badge.Tarjeta;
-    return badge[metodo] || badge.Default;
-  };
+  }
 
   return (
     <div>
       <GastoForm
-        cotizacionUSD={cotizacionUSD}
         onAgregarGasto={agregarGasto}
         editando={editando}
         onActualizarGasto={actualizarGasto}
@@ -112,7 +155,9 @@ export default function Gastos() {
         .map((mes) => (
           <div key={mes} className="mb-4">
             <button
-              onClick={() => toggleMes(mes)}
+              onClick={() => setAbiertos((prev) =>
+                prev.includes(mes) ? prev.filter((m) => m !== mes) : [...prev, mes]
+              )}
               className="w-full text-left bg-gray-200 dark:bg-gray-700 px-3 py-2 rounded font-semibold"
             >
               {dayjs(mes + "-01").format("MMMM YYYY")} (
@@ -121,56 +166,43 @@ export default function Gastos() {
 
             {abiertos.includes(mes) && (
               <ul className="mt-2 space-y-3">
-                {gastosPorMes[mes].map((g) => (
-                  <li
-                    key={g.id}
-                    className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-start"
-                  >
-                    <div>
-                      <p className="text-lg font-semibold flex items-center gap-1">
-                        {g.descripcion}
-                        {g.metodoPago?.toLowerCase().includes("tarjeta") && (
-                          <span className="text-purple-500">💳</span>
-                        )}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        Monto: {mostrarARSyUSD(g.monto)}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        Categoría: {g.categoria}
-                      </p>
-
-                      <span
-                        className={`inline-block text-xs px-2 py-1 rounded-full mt-1 ${getBadgeCls(
-                          g.metodoPago
-                        )}`}
-                      >
-                        {g.metodoPago}
-                      </span>
-
-                      <p className="text-sm text-gray-400 mt-1">
-                        {dayjs(g.fecha?.toDate?.() || g.fecha).format(
-                          "DD/MM/YYYY"
-                        )}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col gap-2 items-end">
-                      <button
-                        onClick={() => setEditando(g)}
-                        className="text-blue-600 border border-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-50"
-                      >
-                        ✏️ Editar
-                      </button>
-                      <button
-                        onClick={() => eliminarGasto(g.id)}
-                        className="text-red-600 border border-red-600 px-3 py-1 rounded text-sm hover:bg-red-50"
-                      >
-                        🗑 Eliminar
-                      </button>
-                    </div>
-                  </li>
-                ))}
+                {gastosPorMes[mes].map((g) => {
+                  const raw = g.fecha;
+                  const dateObj = raw.toDate ? raw.toDate() : raw instanceof Date ? raw : new Date(raw);
+                  return (
+                    <li
+                      key={g.id}
+                      className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-start"
+                    >
+                      <div>
+                        <p className="text-lg font-semibold">{g.descripcion}</p>
+                        <p className="text-sm text-gray-500">
+                          Monto: {g.moneda === 'USD'
+                            ? `u$d ${parseFloat(g.montoUSD).toFixed(2)}`
+                            : `$${formatearMoneda(g.montoARS)} ARS`}
+                        </p>
+                        <p className="text-sm text-gray-500">Categoría: {g.categoria}</p>
+                        <p className="text-sm text-gray-400 mt-1">
+                          {dayjs(dateObj).format("DD/MM/YYYY")}
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-2 items-end">
+                        <button
+                          onClick={() => setEditando(g)}
+                          className="text-blue-600 border border-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-50"
+                        >
+                          ✏️ Editar
+                        </button>
+                        <button
+                          onClick={() => eliminarGasto(g.id)}
+                          className="text-red-600 border border-red-600 px-3 py-1 rounded text-sm hover:bg-red-50"
+                        >
+                          🗑 Eliminar
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

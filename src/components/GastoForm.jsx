@@ -1,19 +1,17 @@
+// src/components/GastoForm.jsx
 import { useEffect, useState } from "react";
-import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import {
   collection,
-  Timestamp,
   onSnapshot,
   query,
-  orderBy,
   where,
+  orderBy,
 } from "firebase/firestore";
-import { convertirUsdAArsFijo } from "../utils/conversion";
+import { db } from "../firebase";
 import { toast } from "react-toastify";
 
 export default function GastoForm({
-  cotizacionUSD,
   onAgregarGasto,
   editando = null,
   onActualizarGasto,
@@ -24,39 +22,46 @@ export default function GastoForm({
 
   const [categoria, setCategoria] = useState("");
   const [categorias, setCategorias] = useState([]);
-
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
   const [descripcion, setDescripcion] = useState("");
-  const [fecha, setFecha] = useState(() =>
+  const [fecha, setFecha] = useState(
     new Date().toISOString().split("T")[0]
   );
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const [subMetodo, setSubMetodo] = useState("");
 
-  /* ───────── cargar categorías del usuario ───────── */
+  const subOpcionesTarjeta = [
+    "Ualá Emma",
+    "Ualá Chris",
+    "Naranja X",
+    "Visa Santander",
+    "Amex Santander",
+  ];
+
+  // Cargar categorías autorizadas para este usuario
   useEffect(() => {
-    if (!user || !uid) return;
-  
-    try {
-      const q = query(
-        collection(db, "categorias"),
-        where("uid", "==", uid),
-        orderBy("nombre", "asc")
-      );
-      const unsub = onSnapshot(q, (snap) => {
+    if (!uid) return;
+    const q = query(
+      collection(db, "categorias"),
+      where("uid", "==", uid),
+      orderBy("nombre", "asc")
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
         const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         setCategorias(data);
-        if (data.length && !categoria) setCategoria(data[0].nombre);
-      });
-      return () => unsub();
-    } catch (err) {
-      console.error("Error al cargar categorías:", err.message);
-    }
-  }, [uid, user]);
-  
+        if (!categoria && data.length) setCategoria(data[0].nombre);
+      },
+      (err) => {
+        console.warn("Error al cargar categorías:", err);
+      }
+    );
+    return () => unsub();
+  }, [uid]);
 
-  /* ───────── cargar datos al editar ───────── */
+  // Carga datos al editar
   useEffect(() => {
     if (editando) {
       setCategoria(editando.categoria || "");
@@ -66,25 +71,22 @@ export default function GastoForm({
           ? editando.fecha.toDate().toISOString().split("T")[0]
           : editando.fecha
       );
-      setMetodoPago(
-        editando.metodoPago?.includes("Tarjeta")
-          ? "Tarjeta de crédito"
-          : editando.metodoPago || "Efectivo"
-      );
+      setMetodoPago(editando.metodoPago?.startsWith("Tarjeta") ? "Tarjeta de crédito" : editando.metodoPago || "Efectivo");
       setSubMetodo(
-        editando.metodoPago?.includes("Tarjeta")
-          ? editando.metodoPago.split(":")[1]?.trim()
+        editando.metodoPago?.startsWith("Tarjeta")
+          ? editando.metodoPago.split(":")[1].trim()
           : ""
       );
-      setMontoARS(editando.monto?.toString() || "");
+      setMontoARS(
+        editando.monto != null ? editando.monto.toString() : ""
+      );
       setMontoUSD(
-        editando.montoUSD?.toString() ||
-          (editando.monto ? (editando.monto / cotizacionUSD).toFixed(2) : "")
+        editando.montoUSD != null ? editando.montoUSD.toString() : ""
       );
     } else {
       resetForm();
     }
-  }, [editando]);
+  }, [editando, uid]);
 
   const resetForm = () => {
     setCategoria(categorias[0]?.nombre || "");
@@ -96,31 +98,14 @@ export default function GastoForm({
     setFecha(new Date().toISOString().split("T")[0]);
   };
 
-  const actualizarDesdeARS = (v) => {
-    setMontoARS(v);
-    const num = parseFloat(v);
-    if (!isNaN(num) && cotizacionUSD > 0)
-      setMontoUSD((num / cotizacionUSD).toFixed(2));
-    else setMontoUSD("");
-  };
-
-  const actualizarDesdeUSD = (v) => {
-    setMontoUSD(v);
-    const num = parseFloat(v);
-    if (!isNaN(num) && cotizacionUSD > 0)
-      setMontoARS((num * cotizacionUSD).toFixed(2));
-    else setMontoARS("");
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     const montoARSnum = parseFloat(montoARS);
     const montoUSDnum = parseFloat(montoUSD);
     const tieneARS = !isNaN(montoARSnum) && montoARSnum > 0;
     const tieneUSD = !isNaN(montoUSDnum) && montoUSDnum > 0;
 
-    if (!descripcion || (!tieneARS && !tieneUSD) || !fecha || !categoria) {
+    if (!descripcion || (!tieneARS && !tieneUSD) || !categoria || !fecha) {
       toast.error("❌ Completa todos los campos obligatorios.");
       return;
     }
@@ -130,46 +115,30 @@ export default function GastoForm({
         ? `Tarjeta: ${subMetodo}`
         : metodoPago;
 
-    const base = {
-      uid,
+    const nuevo = {
       categoria,
       descripcion,
       metodoPago: metodoFinal,
-      fecha, // se convierte a Date en Gastos.jsx
+      fecha,
       monto: tieneARS ? montoARSnum : null,
       montoUSD: tieneUSD ? montoUSDnum : null,
     };
 
-    if (tieneUSD) {
-      const conv = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
-      if (conv) {
-        base.montoARSConvertido = parseFloat(conv.montoARSConvertido);
-        base.cotizacionAlMomento = parseFloat(conv.cotizacionAlMomento);
-      }
-    }
-
     try {
-      if (editando) {
-        await onActualizarGasto({ ...editando, ...base });
+      if (editando && editando.id) {
+        await onActualizarGasto({ id: editando.id, ...nuevo });
         toast.success("✅ Gasto actualizado");
       } else {
-        await onAgregarGasto(base);
+        await onAgregarGasto(nuevo);
         toast.success("✅ Gasto guardado correctamente");
       }
       resetForm();
+      onCancelEdit && onCancelEdit();
     } catch (err) {
       console.error(err);
       toast.error("❌ Error al guardar gasto");
     }
   };
-
-  const subOpcionesTarjeta = [
-    "Ualá Emma",
-    "Ualá Chris",
-    "Naranja X",
-    "Visa Santander",
-    "Amex Santander",
-  ];
 
   return (
     <form
@@ -180,71 +149,73 @@ export default function GastoForm({
         {editando ? "Editar gasto" : "Registrar gasto"}
       </h2>
 
+      {/* Descripción */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Descripción
         </label>
         <input
           type="text"
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value)}
-          placeholder="Ej: Almuerzo, Subte..."
+          placeholder="Ej: Almuerzo, Transporte"
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         />
       </div>
 
+      {/* Categoría */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Categoría
         </label>
         <select
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={categoria}
           onChange={(e) => setCategoria(e.target.value)}
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         >
-          {categorias.map((cat) => (
-            <option key={cat.id} value={cat.nombre}>
-              {cat.nombre}
+          {categorias.map((c) => (
+            <option key={c.id} value={c.nombre}>
+              {c.nombre}
             </option>
           ))}
         </select>
       </div>
 
+      {/* Monto en ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
         </label>
         <input
           type="number"
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={montoARS}
-          onChange={(e) => actualizarDesdeARS(e.target.value)}
+          onChange={(e) => setMontoARS(e.target.value)}
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         />
       </div>
 
+      {/* Monto en USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
         </label>
         <input
           type="number"
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={montoUSD}
-          onChange={(e) => actualizarDesdeUSD(e.target.value)}
+          onChange={(e) => setMontoUSD(e.target.value)}
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         />
       </div>
 
+      {/* Método de pago */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Método de pago
         </label>
         <select
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={metodoPago}
-          onChange={(e) => {
-            setMetodoPago(e.target.value);
-            if (e.target.value !== "Tarjeta de crédito") setSubMetodo("");
-          }}
+          onChange={(e) => setMetodoPago(e.target.value)}
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         >
           <option value="Efectivo">Efectivo</option>
           <option value="Transferencia">Transferencia</option>
@@ -253,15 +224,16 @@ export default function GastoForm({
         </select>
       </div>
 
+      {/* Submétodo si Tarjeta */}
       {metodoPago === "Tarjeta de crédito" && (
         <div className="mb-2">
           <label className="block text-sm text-gray-700 dark:text-gray-300">
-            Tarjeta utilizada
+            Tarjeta usada
           </label>
           <select
-            className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
             value={subMetodo}
             onChange={(e) => setSubMetodo(e.target.value)}
+            className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           >
             <option value="">Selecciona una tarjeta</option>
             {subOpcionesTarjeta.map((op) => (
@@ -273,35 +245,31 @@ export default function GastoForm({
         </div>
       )}
 
-      <div className="mb-2">
+      {/* Fecha */}
+      <div className="mb-4">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha
         </label>
         <input
           type="date"
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={fecha}
           onChange={(e) => setFecha(e.target.value)}
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         />
       </div>
 
-      <div className="flex gap-3 mt-3">
+      <div className="flex gap-3">
         <button
           type="submit"
-          className={`${
-            editando ? "bg-blue-600" : "bg-green-600"
-          } text-white px-4 py-2 rounded hover:opacity-90`}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
         >
-          {editando ? "Actualizar gasto" : "Agregar gasto"}
+          {editando ? "Actualizar" : "Agregar gasto"}
         </button>
         {editando && (
           <button
             type="button"
-            onClick={() => {
-              onCancelEdit();
-              resetForm();
-            }}
-            className="px-4 py-2 rounded bg-gray-500 text-white hover:opacity-90"
+            onClick={() => { resetForm(); onCancelEdit(); }}
+            className="px-4 py-2 rounded bg-gray-500 text-white hover:bg-gray-600"
           >
             Cancelar
           </button>

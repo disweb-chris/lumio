@@ -4,9 +4,9 @@ import {
   collection,
   onSnapshot,
   addDoc,
-  doc,
   updateDoc,
   deleteDoc,
+  doc,
   Timestamp,
   query,
   where,
@@ -15,24 +15,19 @@ import {
 import { db } from "../firebase";
 import { formatearMoneda } from "../utils/format";
 import IngresoForm from "../components/IngresoForm";
-import { obtenerCotizacionUSD } from "../utils/configuracion";
 import dayjs from "dayjs";
 import { useAuth } from "../context/AuthContext";
 
 export default function Ingresos() {
-  // ① Obtenemos el uid del usuario autenticado
   const { user } = useAuth();
   const uid = user.uid;
 
   const [ingresos, setIngresos] = useState([]);
-  const [cotizacionUSD, setCotizacionUSD] = useState(1);
-
-  /* filtro + estado de carga */
-  const [filtro, setFiltro] = useState("todos"); // todos | pendientes | recibidos
   const [cargando, setCargando] = useState(true);
+  const [filtro, setFiltro] = useState("todos");
 
+  // Listener de Firestore
   useEffect(() => {
-    // ② Filtramos solo los ingresos cuyo campo `uid` coincida
     const q = query(
       collection(db, "ingresos"),
       where("uid", "==", uid),
@@ -42,227 +37,186 @@ export default function Ingresos() {
       setIngresos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       setCargando(false);
     });
-
-    obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
     return () => unsub();
   }, [uid]);
 
-  /* helpers */
-  const mostrarARSyUSD = (monto, moneda = "ARS") => {
-    const num = parseFloat(monto || 0);
-    if (isNaN(num)) return "—";
-    if (moneda === "USD") {
-      const ars = cotizacionUSD > 0 ? num * cotizacionUSD : 0;
-      return `u$d ${num.toFixed(2)} / $${formatearMoneda(ars)} ARS`;
-    }
-    const usd = cotizacionUSD > 0 ? num / cotizacionUSD : 0;
-    return `$${formatearMoneda(num)} ARS / u$d ${usd.toFixed(2)}`;
-  };
+  // Totales globales usando los campos fijos de cada documento
+  const totalEsperadoARS = ingresos.reduce(
+    (acc, i) => acc + (i.moneda === "USD" ? i.montoARSConvertido : i.montoARS),
+    0
+  );
+  const totalEsperadoUSD = ingresos.reduce(
+    (acc, i) => acc + (i.moneda === "ARS" ? i.montoUSDConvertido : i.montoUSD),
+    0
+  );
+  const totalRecibidoARS = ingresos.reduce(
+    (acc, i) => acc + (i.montoRecibido || 0),
+    0
+  );
+  const totalRecibidoUSD = ingresos.reduce(
+    (acc, i) => acc + (i.montoRecibido || 0) / i.cotizacionAlMomento,
+    0
+  );
 
-  /* altas */
+  // Alta de ingreso
   const agregarIngreso = async (nuevo) => {
-    // ③ Guardamos también el uid en el documento
     await addDoc(collection(db, "ingresos"), {
       ...nuevo,
       uid,
       fecha1: Timestamp.fromDate(new Date(nuevo.fecha1)),
-      fecha2: nuevo.fecha2
-        ? Timestamp.fromDate(new Date(nuevo.fecha2))
-        : null,
+      fecha2: nuevo.fecha2 ? Timestamp.fromDate(new Date(nuevo.fecha2)) : null,
     });
   };
 
-  /* registrar pagos */
+  // Registrar pago parcial o completo, respetando montos manuales y moneda
   const togglePago = async (ingreso, parte) => {
-    const cotiz = await obtenerCotizacionUSD();
-    const getEnARS = (m, mon) => (mon === "USD" ? m * cotiz : m);
-
     const nuevo = { ...ingreso };
+    const importeTotalARS =
+      ingreso.moneda === "USD" ? ingreso.montoARSConvertido : ingreso.montoARS;
 
+    // Pago 1
     if (parte === 1 && !ingreso.recibido1) {
       nuevo.recibido1 = true;
-      nuevo.montoRecibido =
-        (nuevo.montoRecibido || 0) +
-        getEnARS(ingreso.monto1 ?? ingreso.montoTotal, ingreso.moneda);
+      let addARS;
+      if (ingreso.dividido && typeof ingreso.monto1 === 'number') {
+        // Manual: monto1 está en moneda original
+        addARS = ingreso.moneda === 'USD'
+          ? ingreso.monto1 * ingreso.cotizacionAlMomento
+          : ingreso.monto1;
+      } else if (ingreso.dividido) {
+        // auto: mitad del total en ARS
+        addARS = importeTotalARS / 2;
+      } else {
+        // pago completo
+        addARS = importeTotalARS;
+      }
+      nuevo.montoRecibido = (nuevo.montoRecibido || 0) + addARS;
     }
 
-    if (parte === 2 && !ingreso.recibido2) {
+    // Pago 2
+    if (parte === 2 && ingreso.dividido && !ingreso.recibido2) {
       nuevo.recibido2 = true;
-      nuevo.montoRecibido =
-        (nuevo.montoRecibido || 0) +
-        getEnARS(ingreso.monto2 ?? ingreso.montoTotal / 2, ingreso.moneda);
-    }
-
-    if (!ingreso.dividido && parte === 1 && !ingreso.recibido1) {
-      nuevo.recibido1 = true;
-      nuevo.montoRecibido = getEnARS(ingreso.montoTotal, ingreso.moneda);
+      let addARS;
+      if (typeof ingreso.monto2 === 'number') {
+        // Manual: monto2 en moneda original
+        addARS = ingreso.moneda === 'USD'
+          ? ingreso.monto2 * ingreso.cotizacionAlMomento
+          : ingreso.monto2;
+      } else {
+        // auto fallback
+        addARS = importeTotalARS / 2;
+      }
+      nuevo.montoRecibido = (nuevo.montoRecibido || 0) + addARS;
     }
 
     await updateDoc(doc(db, "ingresos", ingreso.id), nuevo);
   };
 
+  // Eliminar ingreso
   const eliminarIngreso = async (id) => {
-    if (window.confirm("¿Eliminar este ingreso?"))
+    if (window.confirm("¿Eliminar este ingreso?")) {
       await deleteDoc(doc(db, "ingresos", id));
+    }
   };
 
-  /* totales globales (no dependen del filtro) */
-  const totalEsperado = ingresos.reduce((acc, i) => {
-    const m = i.montoTotal || 0;
-    return acc + (i.moneda === "USD" ? m * cotizacionUSD : m);
-  }, 0);
-  const totalRecibido = ingresos.reduce(
-    (acc, i) => acc + (i.montoRecibido || 0),
-    0
-  );
-  const pendiente = totalEsperado - totalRecibido;
-
-  /* FILTRADO v3 – pendiente vs recibido por comparación de montos */
+  // Filtrado por estado de pago
   const ingresosFiltrados = ingresos.filter((i) => {
-    const totalARS =
-      i.moneda === "USD" ? i.montoTotal * cotizacionUSD : i.montoTotal;
-    const recibidoARS = i.montoRecibido || 0;
-
-    const estaRecibido = recibidoARS >= totalARS;
-
-    if (filtro === "pendientes") return !estaRecibido;
-    if (filtro === "recibidos") return estaRecibido;
-    return true; // todos
+    const importeTotalARS = i.moneda === "USD" ? i.montoARSConvertido : i.montoARS;
+    const recARS = i.montoRecibido || 0;
+    if (filtro === "pendientes") return recARS < importeTotalARS;
+    if (filtro === "recibidos") return recARS >= importeTotalARS;
+    return true;
   });
 
-  /* UI */
+  // Helper para mostrar importe fijo
+  const formatoImporte = (i) => {
+    if (i.moneda === "USD") {
+      return `\$${formatearMoneda(i.montoARSConvertido)} ARS / u\$d ${i.montoUSD}`;
+    }
+    return `\$${formatearMoneda(i.montoARS)} ARS / u\$d ${i.montoUSDConvertido}`;
+  };
+
   return (
     <div>
       {/* Totales */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        {[
-          { t: "Total esperado", v: totalEsperado, c: "text-blue-400" },
-          { t: "Total recibido", v: totalRecibido, c: "text-green-500" },
-          { t: "Pendiente de cobro", v: pendiente, c: "text-yellow-400" },
-        ].map((box, i) => (
-          <div
-            key={i}
-            className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center"
-          >
-            <p className="text-sm text-gray-500 dark:text-gray-300">{box.t}</p>
-            <p className={`text-lg font-bold ${box.c}`}>
-              {mostrarARSyUSD(box.v, "ARS")}
-            </p>
-          </div>
-        ))}
+        <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
+          <p className="text-sm text-gray-500">Total esperado</p>
+          <p className="text-2xl font-bold text-blue-600">
+            {`$${formatearMoneda(totalEsperadoARS)} ARS / u$d ${totalEsperadoUSD.toFixed(2)}`}
+          </p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
+          <p className="text-sm text-gray-500">Total recibido</p>
+          <p className="text-2xl font-bold text-green-500">
+            {`$${formatearMoneda(totalRecibidoARS)} ARS / u$d ${totalRecibidoUSD.toFixed(2)}`}
+          </p>
+        </div>
+        <div className="bg-white dark:bg-gray-800 p-4 rounded shadow text-center">
+          <p className="text-sm text-gray-500">Pendiente</p>
+          <p
+            className={`text-2xl font-bold ${
+              totalEsperadoARS - totalRecibidoARS < 0 ? "text-red-500" : "text-yellow-500"
+            }`}>
+            {`$${formatearMoneda(totalEsperadoARS - totalRecibidoARS)} ARS / u$d ${(totalEsperadoUSD - totalRecibidoUSD).toFixed(2)}`}
+          </p>
+        </div>
       </div>
 
-      {/* Formulario alta */}
-      <IngresoForm
-        onAgregarIngreso={agregarIngreso}
-        cotizacionUSD={cotizacionUSD}
-      />
+      {/* Formulario */}
+      <IngresoForm onAgregarIngreso={agregarIngreso} />
 
-      {/* Selector filtro */}
+      {/* Filtro */}
       <div className="flex gap-4 mt-4 mb-2">
-        {["todos", "pendientes", "recibidos"].map((opt) => (
+        {['todos','pendientes','recibidos'].map(opt => (
           <label key={opt} className="text-sm flex items-center gap-1">
             <input
               type="radio"
               value={opt}
-              checked={filtro === opt}
-              onChange={(e) => setFiltro(e.target.value)}
+              checked={filtro===opt}
+              onChange={(e)=>setFiltro(e.target.value)}
             />
-            {opt.charAt(0).toUpperCase() + opt.slice(1)}
+            {opt.charAt(0).toUpperCase()+opt.slice(1)}
           </label>
         ))}
       </div>
 
+      {/* Lista */}
       {cargando ? (
         <p className="text-center text-gray-500">Cargando…</p>
       ) : (
-        <>
-          <h3 className="text-lg font-semibold mt-4 mb-2 text-gray-800 dark:text-white">
-            Lista de ingresos
-          </h3>
-
-          <ul className="space-y-3">
-            {ingresosFiltrados.map((ingreso) => (
-              <li
-                key={ingreso.id}
-                className="p-4 bg-white dark:bg-gray-800 rounded shadow"
-              >
-                <div className="flex justify-between flex-wrap">
-                  {/* --- Info izquierda --- */}
-                  <div>
-                    <p className="text-lg font-semibold">
-                      {ingreso.descripcion}
-                    </p>
-
-                    <p className="text-sm text-gray-500">
-                      Monto total:{" "}
-                      {mostrarARSyUSD(ingreso.montoTotal, ingreso.moneda)}
-                    </p>
-
-                    <p className="text-sm text-gray-500">
-                      Recibido:{" "}
-                      {mostrarARSyUSD(ingreso.montoRecibido || 0, "ARS")}
-                    </p>
-
-                    {ingreso.dividido && (
-                      <>
-                        <p className="text-sm text-gray-400 mt-2">
-                          <strong>1º pago:</strong>{" "}
-                          {mostrarARSyUSD(
-                            ingreso.monto1 || ingreso.montoTotal / 2,
-                            ingreso.moneda
-                          )}{" "}
-                          – {dayjs(ingreso.fecha1.toDate()).format("DD/MM/YYYY")}{" "}
-                          – {ingreso.recibido1 ? "✅" : "❌"}
-                        </p>
-                        <p className="text-sm text-gray-400">
-                          <strong>2º pago:</strong>{" "}
-                          {mostrarARSyUSD(
-                            ingreso.monto2 || ingreso.montoTotal / 2,
-                            ingreso.moneda
-                          )}{" "}
-                          –{" "}
-                          {ingreso.fecha2
-                            ? dayjs(ingreso.fecha2.toDate()).format(
-                                "DD/MM/YYYY"
-                              )
-                            : "Sin fecha"}{" "}
-                          – {ingreso.recibido2 ? "✅" : "❌"}
-                        </p>
-                      </>
-                    )}
-                  </div>
-
-                  {/* --- Acciones derecha --- */}
-                  <div className="flex flex-col gap-2 items-end mt-4 sm:mt-0">
-                    {!ingreso.recibido1 && (
-                      <button
-                        onClick={() => togglePago(ingreso, 1)}
-                        className="bg-blue-600 text-white px-3 py-1 rounded text-sm"
-                      >
-                        Registrar 1° pago
-                      </button>
-                    )}
-                    {ingreso.dividido && !ingreso.recibido2 && (
-                      <button
-                        onClick={() => togglePago(ingreso, 2)}
-                        className="bg-indigo-600 text-white px-3 py-1 rounded text-sm"
-                      >
-                        Registrar 2° pago
-                      </button>
-                    )}
-                    <button
-                      onClick={() => eliminarIngreso(ingreso.id)}
-                      className="text-red-600 border border-red-600 px-3 py-1 rounded text-sm hover:bg-red-50"
-                    >
-                      🗑 Eliminar
+        <ul className="space-y-3">
+          {ingresosFiltrados.map((ing) => {
+            const importeTotalARS = ing.moneda==='USD'?ing.montoARSConvertido:ing.montoARS;
+            const recARS = ing.montoRecibido||0;
+            return (
+              <li key={ing.id} className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-start">
+                <div>
+                  <p className="text-lg font-semibold">{ing.descripcion}</p>
+                  <p className="text-sm text-gray-500">Monto total: {formatoImporte(ing)}</p>
+                  <p className="text-sm text-gray-500">
+                    Recibido: ${formatearMoneda(recARS)} ARS / u$d {(recARS/ing.cotizacionAlMomento).toFixed(2)}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 items-end">
+                  {!ing.recibido1 && (
+                    <button onClick={()=>togglePago(ing,1)} className="bg-blue-600 text-white px-3 py-1 rounded text-sm">
+                      Registrar 1° pago
                     </button>
-                  </div>
+                  )}
+                  {ing.dividido && !ing.recibido2 && (
+                    <button onClick={()=>togglePago(ing,2)} className="bg-indigo-600 text-white px-3 py-1 rounded text-sm">
+                      Registrar 2° pago
+                    </button>
+                  )}
+                  <button onClick={()=>eliminarIngreso(ing.id)} className="text-red-600 border border-red-600 px-3 py-1 rounded text-sm hover:bg-red-50">
+                    🗑 Eliminar
+                  </button>
                 </div>
               </li>
-            ))}
-          </ul>
-        </>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

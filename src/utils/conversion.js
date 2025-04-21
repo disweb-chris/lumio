@@ -28,3 +28,17 @@ export function convertirUsdAArsFijo(montoUSD, cotizacionUSD) {
   }
   return null;
 }
+
+// *Nueva* conversión fija ARS → USD
+export function convertirArsAUsdFijo(montoARS, cotizacionUSD) {
+  const ars = parseFloat(montoARS);
+  const cot = parseFloat(cotizacionUSD);
+  if (!isNaN(ars) && cot > 0) {
+    return {
+      montoARS: ars.toFixed(2),
+      cotizacionAlMomento: cot.toFixed(2),
+      montoUSDConvertido: (ars / cot).toFixed(2),
+    };
+  }
+  return null;
+}

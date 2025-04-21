@@ -15,6 +15,7 @@ import { useAuth } from "../context/AuthContext";
 import { formatearMoneda } from "../utils/format";
 import CategoriaForm from "../components/CategoriaForm";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
+import { convertirArsAUsdFijo } from "../utils/conversion";
 
 export default function Presupuestos() {
   const { user } = useAuth();
@@ -27,10 +28,7 @@ export default function Presupuestos() {
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   useEffect(() => {
-    const q = query(
-      collection(db, "categorias"),
-      where("uid", "==", uid)
-    );
+    const q = query(collection(db, "categorias"), where("uid", "==", uid));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setCategorias(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
@@ -42,41 +40,45 @@ export default function Presupuestos() {
     return () => unsubscribe();
   }, [uid]);
 
+  // Agrega categoría guardando presupuesto y su equivalente USD fijo
   const agregarCategoria = async ({ nombre, presupuesto }) => {
     try {
+      const conv = convertirArsAUsdFijo(presupuesto, cotizacionUSD);
       await addDoc(collection(db, "categorias"), {
+        uid,
         nombre,
-        presupuesto,
-        uid, // importante para las reglas de seguridad
+        presupuestoARS: presupuesto,
+        presupuestoUSD: parseFloat(conv.montoUSDConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
       });
     } catch (error) {
       console.error("Error al agregar categoría:", error);
       alert("Error al agregar categoría");
-      console.error(error); // ← reinstaurado
     }
   };
 
+  // Actualiza categoría y recalcula USD fijo
   const guardarCambios = async (id) => {
     const nombre = nuevoNombre.trim();
-    const presupuesto = parseFloat(nuevoPresupuesto);
-
-    if (!nombre || isNaN(presupuesto) || presupuesto <= 0) {
+    const ars = parseFloat(nuevoPresupuesto);
+    if (!nombre || isNaN(ars) || ars <= 0) {
       alert("Datos inválidos.");
       return;
     }
-
     try {
+      const conv = convertirArsAUsdFijo(ars, cotizacionUSD);
       await updateDoc(doc(db, "categorias", id), {
         nombre,
-        presupuesto,
+        presupuestoARS: ars,
+        presupuestoUSD: parseFloat(conv.montoUSDConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
       });
       setEditando(null);
       setNuevoNombre("");
       setNuevoPresupuesto("");
     } catch (error) {
-      console.error("❌ Error al actualizar categoría:", error);
+      console.error("Error al actualizar categoría:", error);
       alert("Error al actualizar categoría");
-      console.error(error);
     }
   };
 
@@ -85,15 +87,9 @@ export default function Presupuestos() {
     try {
       await deleteDoc(doc(db, "categorias", id));
     } catch (error) {
-      console.error("❌ Error al eliminar categoría:", error);
+      console.error("Error al eliminar categoría:", error);
       alert("Error al eliminar categoría");
-      console.error(error);
     }
-  };
-
-  const mostrarARSyUSD = (monto) => {
-    const usd = (monto / cotizacionUSD).toFixed(2);
-    return `${formatearMoneda(monto)} ARS / u$d ${usd}`;
   };
 
   return (
@@ -125,13 +121,13 @@ export default function Presupuestos() {
                     value={nuevoPresupuesto}
                     onChange={(e) => setNuevoPresupuesto(e.target.value)}
                     className="w-full sm:w-1/3 px-2 py-1 rounded border dark:bg-gray-700 dark:text-white"
-                    placeholder="Nuevo presupuesto"
+                    placeholder="Nuevo presupuesto (ARS)"
                   />
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => guardarCambios(cat.id)}
-                    className="bg-green-600 text-white px-3 py-1 rounded"
+                    className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
                   >
                     Guardar
                   </button>
@@ -141,7 +137,7 @@ export default function Presupuestos() {
                       setNuevoNombre("");
                       setNuevoPresupuesto("");
                     }}
-                    className="bg-gray-500 text-white px-3 py-1 rounded"
+                    className="bg-gray-500 text-white px-3 py-1 rounded hover:bg-gray-600"
                   >
                     Cancelar
                   </button>
@@ -152,7 +148,8 @@ export default function Presupuestos() {
                 <div>
                   <p className="text-lg font-semibold">{cat.nombre}</p>
                   <p className="text-sm text-gray-600 dark:text-gray-300">
-                    Presupuesto actual: {mostrarARSyUSD(cat.presupuesto)}
+                    Presupuesto: {formatearMoneda(cat.presupuestoARS)} ARS / u$d{" "}
+                    {cat.presupuestoUSD.toFixed(2)}
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -160,15 +157,15 @@ export default function Presupuestos() {
                     onClick={() => {
                       setEditando(cat.id);
                       setNuevoNombre(cat.nombre);
-                      setNuevoPresupuesto(cat.presupuesto);
+                      setNuevoPresupuesto(cat.presupuestoARS);
                     }}
-                    className="bg-blue-600 text-white px-4 py-2 rounded"
+                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
                   >
                     Editar
                   </button>
                   <button
                     onClick={() => eliminarCategoria(cat.id)}
-                    className="bg-white text-red-600 border px-3 py-1 rounded hover:bg-gray-200"
+                    className="bg-white text-red-600 border px-3 py-1 rounded hover:bg-red-100"
                   >
                     🗑
                   </button>

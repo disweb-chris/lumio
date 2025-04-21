@@ -13,149 +13,175 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { useAuth } from "../context/AuthContext";
 import VencimientoForm from "../components/VencimientoForm";
-import { formatearMoneda } from "../utils/format";
 import AlertaVencimiento from "../components/AlertaVencimiento";
-import { obtenerCotizacionUSD } from "../utils/configuracion";
+import { formatearMoneda } from "../utils/format";
 import FiltroMes from "../components/FiltroMes";
 import dayjs from "dayjs";
-import { useAuth } from "../context/AuthContext";
+import { obtenerCotizacionUSD } from "../utils/configuracion";
+import { convertirUsdAArsFijo, convertirArsAUsdFijo } from "../utils/conversion";
 
 export default function Vencimientos() {
-  // ① Obtenemos el uid del usuario autenticado
   const { user } = useAuth();
-  const uid = user.uid;
+  const uid = user?.uid;
 
   const [vencimientos, setVencimientos] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
   const [editando, setEditando] = useState(null);
-
-  /* filtro mes + toggle */
   const [mesSeleccionado, setMesSeleccionado] = useState(
     dayjs().format("YYYY-MM")
   );
   const [verPagados, setVerPagados] = useState(false);
+  const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
-    // ② Filtramos solo los vencimientos de este usuario
+    if (!uid) return;
     const q = query(
       collection(db, "vencimientos"),
       where("uid", "==", uid),
       orderBy("fecha", "asc")
     );
-    const unsub = onSnapshot(q, (snap) =>
-      setVencimientos(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setVencimientos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setCargando(false);
+      },
+      (err) => console.warn("Error al cargar vencimientos:", err)
     );
-
     obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
     return () => unsub();
   }, [uid]);
 
-  /* CRUD */
-  const agregarVencimiento = async (nuevo) => {
-    // ③ Guardamos también el uid en el documento
-    await addDoc(collection(db, "vencimientos"), {
-      ...nuevo,
-      uid,
-      pagado: false,
-      fecha: Timestamp.fromDate(new Date(nuevo.fecha)),
-    });
+  // Marca/desmarca pagado y crea/elimina gasto asociado
+  const togglePagado = async (id, pagado, item) => {
+    const ref = doc(db, "vencimientos", id);
+    if (!pagado) {
+      await updateDoc(ref, { pagado: true });
+      const gasto = {
+        uid,
+        categoria: item.categoria,
+        descripcion: item.descripcion,
+        metodoPago: item.metodoPago,
+        fecha: item.fecha,
+        timestamp: Timestamp.now(),
+      };
+      if (item.moneda === "USD") {
+        gasto.moneda = "USD";
+        gasto.montoUSD = item.montoUSD;
+        gasto.montoARSConvertido = item.montoARSConvertido;
+        gasto.cotizacionAlMomento = item.cotizacionAlMomento;
+      } else {
+        gasto.moneda = "ARS";
+        gasto.montoARS = item.montoARS;
+        gasto.montoUSDConvertido = item.montoUSDConvertido;
+        gasto.cotizacionAlMomento = item.cotizacionAlMomento;
+      }
+      const gastoRef = await addDoc(collection(db, "gastos"), gasto);
+      await updateDoc(ref, { idGasto: gastoRef.id });
+    } else {
+      await updateDoc(ref, { pagado: false });
+      if (item.idGasto) {
+        await deleteDoc(doc(db, "gastos", item.idGasto));
+        await updateDoc(ref, { idGasto: null });
+      }
+    }
   };
 
-  const actualizarVencimiento = async (v) => {
-    const ref = doc(db, "vencimientos", v.id);
-    const data = { ...v };
+  // Eliminar vencimiento (y gasto asociado si existe)
+  const eliminarVencimiento = async (item) => {
+    if (window.confirm("¿Eliminar este vencimiento?")) {
+      if (item.pagado && item.idGasto) {
+        await deleteDoc(doc(db, "gastos", item.idGasto));
+      }
+      await deleteDoc(doc(db, "vencimientos", item.id));
+    }
+  };
+
+  // Agregar y actualizar con conversión fija
+  const handleAgregar = async (nuevo) => {
+    const cot = cotizacionUSD;
+    const base = { ...nuevo, uid, pagado: false, categoria: nuevo.categoria };
+    if (nuevo.montoUSD != null) {
+      const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
+      Object.assign(base, {
+        moneda: "USD",
+        montoUSD: parseFloat(conv.montoUSD),
+        montoARSConvertido: parseFloat(conv.montoARSConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+      });
+    } else {
+      const conv = convertirArsAUsdFijo(nuevo.montoARS, cot);
+      Object.assign(base, {
+        moneda: "ARS",
+        montoARS: parseFloat(conv.montoARS),
+        montoUSDConvertido: parseFloat(conv.montoUSDConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+      });
+    }
+    await addDoc(collection(db, "vencimientos"), base);
+  };
+
+  const handleActualizar = async (nuevo) => {
+    const cot = cotizacionUSD;
+    const ref = doc(db, "vencimientos", nuevo.id);
+    const data = { ...nuevo };
     delete data.id;
-    data.fecha = Timestamp.fromDate(new Date(v.fecha));
+    if (nuevo.montoUSD != null) {
+      const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
+      Object.assign(data, {
+        moneda: "USD",
+        montoUSD: parseFloat(conv.montoUSD),
+        montoARSConvertido: parseFloat(conv.montoARSConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+        montoARS: null,
+        montoUSDConvertido: null,
+      });
+    } else {
+      const conv = convertirArsAUsdFijo(nuevo.montoARS, cot);
+      Object.assign(data, {
+        moneda: "ARS",
+        montoARS: parseFloat(conv.montoARS),
+        montoUSDConvertido: parseFloat(conv.montoUSDConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+        montoUSD: null,
+        montoARSConvertido: null,
+      });
+    }
     await updateDoc(ref, data);
     setEditando(null);
   };
 
-  const togglePagado = async (id, actual, v) => {
-    try {
-      const nuevoEstado = !actual;
+  // Filtrar por mes y estado pagado
+  const lista = vencimientos
+    .filter((v) =>
+      mesSeleccionado === "todos"
+        ? true
+        : dayjs(
+            v.fecha?.toDate ? v.fecha.toDate() : v.fecha
+          ).format("YYYY-MM") === mesSeleccionado
+    )
+    .filter((v) => (verPagados ? v.pagado : !v.pagado));
 
-      if (!nuevoEstado && v.idGasto) {
-        await deleteDoc(doc(db, "gastos", v.idGasto));
-      }
+  if (cargando) {
+    return (
+      <div className="flex items-center justify-center h-64 text-gray-500">
+        Cargando vencimientos…
+      </div>
+    );
+  }
 
-      if (nuevoEstado) {
-        // Cuando marcamos pagado, creamos el gasto
-        const docRef = await addDoc(collection(db, "gastos"), {
-          categoria: v.categoria || "Vencimientos",
-          descripcion: v.descripcion,
-          monto: v.monto,
-          metodoPago: v.metodoPago || "Sin especificar",
-          fecha: v.fecha,
-          timestamp: Timestamp.now(),
-          uid, // también guardamos el uid aquí
-        });
-
-        await updateDoc(doc(db, "vencimientos", id), {
-          pagado: true,
-          idGasto: docRef.id,
-        });
-
-        // Si es recurrente, creamos el siguiente vencimiento
-        if (v.recurrente) {
-          const fechaActual = v.fecha?.toDate
-            ? v.fecha.toDate()
-            : new Date(v.fecha);
-          const proxima = new Date(
-            fechaActual.getFullYear(),
-            fechaActual.getMonth() + 1,
-            fechaActual.getDate()
-          );
-
-          await addDoc(collection(db, "vencimientos"), {
-            descripcion: v.descripcion,
-            monto: v.monto,
-            metodoPago: v.metodoPago || "Sin especificar",
-            pagado: false,
-            recurrente: true,
-            categoria: v.categoria || "Vencimientos",
-            fecha: Timestamp.fromDate(proxima),
-            uid, // y aquí también
-          });
-        }
-      } else {
-        await updateDoc(doc(db, "vencimientos", id), {
-          pagado: false,
-          idGasto: null,
-        });
-      }
-    } catch (e) {
-      console.error("❌ Error al actualizar vencimiento:", e);
-    }
-  };
-
-  const eliminarVencimiento = async (id) =>
-    window.confirm("¿Eliminar este vencimiento?") &&
-    deleteDoc(doc(db, "vencimientos", id));
-
-  /* ───────── FILTROS ───────── */
-  const filtrarPorMes = (arr) =>
-    arr.filter((v) => {
-      if (mesSeleccionado === "todos") return true;
-      const mes = dayjs(v.fecha?.toDate?.() || v.fecha).format("YYYY-MM");
-      return mes === mesSeleccionado;
-    });
-
-  let lista = filtrarPorMes(vencimientos);
-  if (!verPagados) lista = lista.filter((v) => !v.pagado);
-
-  /* render */
   return (
     <div>
-      {/* Form alta/edición */}
       <VencimientoForm
-        onAgregar={agregarVencimiento}
-        onActualizar={actualizarVencimiento}
+        onAgregar={handleAgregar}
+        onActualizar={handleActualizar}
         editando={editando}
+        onCancelEdit={() => setEditando(null)}
         cotizacionUSD={cotizacionUSD}
       />
 
-      {/* Controles de filtro */}
       <div className="flex flex-wrap items-center gap-4 mb-4">
         <FiltroMes
           items={vencimientos}
@@ -172,73 +198,69 @@ export default function Vencimientos() {
         </label>
       </div>
 
-      <h3 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
-        Pagos con vencimiento
-      </h3>
-
-      {lista.length === 0 ? (
-        <p className="text-gray-500 dark:text-gray-300">
-          No hay vencimientos para este filtro.
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {lista.map((item) => (
-            <li
-              key={item.id}
-              className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-center"
-            >
-              <div>
-                <p className="text-lg">{item.descripcion}</p>
-                <p className="text-sm text-gray-500">
-                  Fecha:{" "}
-                  {item.fecha?.toDate
-                    ? item.fecha.toDate().toLocaleDateString()
-                    : item.fecha}
-                </p>
-                {item.metodoPago && (
+      <ul className="space-y-2">
+        {lista.length === 0 ? (
+          <p className="text-gray-500 dark:text-gray-300">
+            No hay vencimientos para este filtro.
+          </p>
+        ) : (
+          lista.map((item) => {
+            const dateObj = item.fecha?.toDate ? item.fecha.toDate() : new Date(item.fecha);
+            // Garantizar valores numéricos para toFixed
+            const usdAmount = Number(item.montoUSD ?? item.montoUSDConvertido ?? 0).toFixed(2);
+            const arsAmount = Number(item.montoARS ?? item.montoARSConvertido ?? 0);
+            const arsFormatted = formatearMoneda(arsAmount);
+            return (
+              <li
+                key={item.id}
+                className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-center"
+              >
+                <div>
+                  <p className="text-lg font-semibold">{item.descripcion}</p>
                   <p className="text-sm text-gray-500">
-                    Método de pago: {item.metodoPago}
+                    Fecha: {dayjs(dateObj).format("DD/MM/YYYY")}
                   </p>
-                )}
-                <p className="text-sm text-gray-600 dark:text-gray-300">
-                  Monto: ${formatearMoneda(item.monto)}
-                </p>
-                {item.categoria && (
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                  <p className="text-sm text-gray-500">
+                    Monto:{' '}
+                    {item.moneda === 'USD'
+                      ? `u$d ${item.montoUSD.toFixed(2)} / $${formatearMoneda(item.montoARSConvertido)}`
+                      : `$${formatearMoneda(item.montoARS)} / u$d ${item.montoUSDConvertido.toFixed(2)}`}
+                  </p>
+                  <p className="text-sm text-gray-500">
                     Categoría: {item.categoria}
                   </p>
-                )}
-                {item.recurrente && (
-                  <span className="text-xs text-purple-500 font-semibold block mt-1">
-                    🔁 Recurrente mensual
-                  </span>
-                )}
-              </div>
-              <div className="flex gap-2 flex-wrap justify-end">
-                <AlertaVencimiento fecha={item.fecha} pagado={item.pagado} />
-                <button
-                  onClick={() => togglePagado(item.id, item.pagado, item)}
-                  className="text-sm px-3 py-1 rounded bg-blue-600 text-white"
-                >
-                  {item.pagado ? "Desmarcar" : "Marcar pagado"}
-                </button>
-                <button
-                  onClick={() => setEditando(item)}
-                  className="text-sm px-2 py-1 rounded bg-yellow-100 text-yellow-800 border border-yellow-300"
-                >
-                  ✏️
-                </button>
-                <button
-                  onClick={() => eliminarVencimiento(item.id)}
-                  className="text-sm px-2 py-1 rounded bg-white text-red-600 hover:bg-gray-200 border"
-                >
-                  🗑
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
+                  {item.recurrente && (
+                    <span className="text-xs text-purple-500 font-semibold block mt-1">
+                      🔁 Recurrente mensual
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2 items-center">
+                  <AlertaVencimiento fecha={item.fecha} pagado={item.pagado} />
+                  <button
+                    onClick={() => togglePagado(item.id, item.pagado, item)}
+                    className="text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    {item.pagado ? 'Desmarcar' : 'Marcar pagado'}
+                  </button>
+                  <button
+                    onClick={() => setEditando(item)}
+                    className="text-sm px-2 py-1 rounded bg-yellow-100 text-yellow-800 border hover:bg-yellow-200"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={() => eliminarVencimiento(item)}
+                    className="text-sm px-2 py-1 rounded bg-white text-red-600 border hover:bg-red-100"
+                  >
+                    🗑
+                  </button>
+                </div>
+              </li>
+            );
+          })
+        )}
+      </ul>
     </div>
   );
 }

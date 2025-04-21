@@ -1,55 +1,46 @@
 import { useState } from "react";
-import { convertirUsdAArsFijo } from "../utils/conversion";
 import { toast } from "react-toastify";
+import { obtenerCotizacionUSD } from "../utils/configuracion";
+import {
+  convertirUsdAArsFijo,
+  convertirArsAUsdFijo
+} from "../utils/conversion";
 
-export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
+export default function IngresoForm({ onAgregarIngreso }) {
   const [descripcion, setDescripcion] = useState("");
   const [montoARS, setMontoARS] = useState("");
   const [montoUSD, setMontoUSD] = useState("");
   const [fecha, setFecha] = useState(
-    () => new Date().toISOString().split("T")[0]
+    new Date().toISOString().split("T")[0]
   );
-
-  const [modo, setModo] = useState("completo"); // completo | auto | manual
+  const [modo, setModo] = useState("completo");
   const [monto1, setMonto1] = useState("");
   const [monto2, setMonto2] = useState("");
   const [fecha2, setFecha2] = useState("");
 
+  // Calcula fecha de segundo pago sumando 30 días hábiles
   const calcularFechaSegundoPago = (fechaStr) => {
     const base = new Date(fechaStr);
     let diasAgregados = 0;
     let actual = new Date(base);
     while (diasAgregados < 30) {
       actual.setDate(actual.getDate() + 1);
-      const esDiaHabil = actual.getDay() !== 0 && actual.getDay() !== 6;
-      if (esDiaHabil) diasAgregados++;
+      const dia = actual.getDay();
+      if (dia !== 0 && dia !== 6) diasAgregados++;
     }
     return actual.toISOString().split("T")[0];
   };
 
+  // Actualizaciones simples de inputs
   const actualizarDesdeARS = (valor) => {
     setMontoARS(valor);
-    const num = parseFloat(valor);
-    if (!isNaN(num) && cotizacionUSD > 0) {
-      setMontoUSD((num / cotizacionUSD).toFixed(2));
-    } else {
-      setMontoUSD("");
-    }
   };
-
   const actualizarDesdeUSD = (valor) => {
     setMontoUSD(valor);
-    const num = parseFloat(valor);
-    if (!isNaN(num) && cotizacionUSD > 0) {
-      setMontoARS((num * cotizacionUSD).toFixed(2));
-    } else {
-      setMontoARS("");
-    }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-
     const montoARSnum = parseFloat(montoARS);
     const montoUSDnum = parseFloat(montoUSD);
     const tieneARS = !isNaN(montoARSnum) && montoARSnum > 0;
@@ -60,42 +51,60 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
       return;
     }
 
-    const moneda = tieneUSD ? "USD" : "ARS";
-    const montoTotal = moneda === "USD" ? montoUSDnum : montoARSnum;
+    // 1) Obtener cotización global en el momento
+    let cotizacion;
+    try {
+      cotizacion = await obtenerCotizacionUSD();
+    } catch (err) {
+      console.error(err);
+      toast.error("❌ Error al obtener la cotización.");
+      return;
+    }
+    if (!cotizacion) {
+      toast.error("❌ Cotización no disponible.");
+      return;
+    }
 
+    // 2) Construir objeto base
     let ingreso = {
       descripcion,
-      moneda,
-      montoTotal,
-      montoARS: tieneARS ? montoARSnum : null,
-      montoUSD: tieneUSD ? montoUSDnum : null,
       fecha1: fecha,
       recibido1: false,
       recibido2: false,
       dividido: modo !== "completo",
+      montoRecibido: 0,
     };
 
+    // 3) Conversión fija según moneda de origen
     if (tieneUSD) {
-      const conversion = convertirUsdAArsFijo(montoUSD, cotizacionUSD);
-      if (conversion) {
-        ingreso.montoARSConvertido = parseFloat(conversion.montoARSConvertido);
-        ingreso.cotizacionAlMomento = parseFloat(
-          conversion.cotizacionAlMomento
-        );
-      }
+      const conv = convertirUsdAArsFijo(montoUSDnum, cotizacion);
+      ingreso = {
+        ...ingreso,
+        moneda: "USD",
+        montoUSD: parseFloat(conv.montoUSD),
+        montoARSConvertido: parseFloat(conv.montoARSConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+      };
+    } else if (tieneARS) {
+      const conv2 = convertirArsAUsdFijo(montoARSnum, cotizacion);
+      ingreso = {
+        ...ingreso,
+        moneda: "ARS",
+        montoARS: parseFloat(conv2.montoARS),
+        montoUSDConvertido: parseFloat(conv2.montoUSDConvertido),
+        cotizacionAlMomento: parseFloat(conv2.cotizacionAlMomento),
+      };
     }
 
-    if (modo === "completo") {
-      ingreso.montoRecibido = 0;
-      ingreso.fecha2 = null;
-    }
-
+    // 4) Manejo de modos de pago
     if (modo === "auto") {
-      ingreso.monto1 = montoTotal / 2;
-      ingreso.monto2 = montoTotal / 2;
+      const total = ingreso.moneda === "USD"
+        ? ingreso.montoUSD
+        : ingreso.montoARS;
+      ingreso.monto1 = total / 2;
+      ingreso.monto2 = total / 2;
       ingreso.fecha2 = calcularFechaSegundoPago(fecha);
     }
-
     if (modo === "manual") {
       const m1 = parseFloat(monto1);
       const m2 = parseFloat(monto2);
@@ -108,15 +117,16 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
       ingreso.fecha2 = fecha2 || null;
     }
 
+    // 5) Enviar a Firestore
     try {
-      onAgregarIngreso(ingreso);
+      await onAgregarIngreso(ingreso);
       toast.success("✅ Ingreso registrado correctamente");
-    } catch (error) {
-      console.error("❌ Error al guardar ingreso:", error);
+    } catch (err) {
+      console.error(err);
       toast.error("❌ Error al guardar el ingreso");
     }
 
-    // Reset
+    // 6) Resetear formulario
     setDescripcion("");
     setMontoARS("");
     setMontoUSD("");
@@ -143,48 +153,49 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         </label>
         <input
           type="text"
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={descripcion}
           onChange={(e) => setDescripcion(e.target.value)}
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+          placeholder="Ej: Proyecto X"
         />
       </div>
 
-      {/* Monto ARS */}
+      {/* Monto en ARS */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en ARS
         </label>
         <input
           type="number"
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={montoARS}
           onChange={(e) => actualizarDesdeARS(e.target.value)}
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         />
       </div>
 
-      {/* Monto USD */}
+      {/* Monto en USD */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Monto en USD
         </label>
         <input
           type="number"
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={montoUSD}
           onChange={(e) => actualizarDesdeUSD(e.target.value)}
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         />
       </div>
 
-      {/* Fecha */}
+      {/* Fecha primer pago */}
       <div className="mb-2">
         <label className="block text-sm text-gray-700 dark:text-gray-300">
           Fecha primer pago
         </label>
         <input
           type="date"
+          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           value={fecha}
           onChange={(e) => setFecha(e.target.value)}
-          className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         />
       </div>
 
@@ -227,6 +238,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
         </div>
       </div>
 
+      {/* Ingreso dividido manual */}
       {modo === "manual" && (
         <>
           <div className="mb-2">
@@ -255,7 +267,7 @@ export default function IngresoForm({ onAgregarIngreso, cotizacionUSD = 1 }) {
 
           <div className="mb-2">
             <label className="block text-sm text-gray-700 dark:text-gray-300">
-              Fecha 2º pago (estimada)
+              Fecha 2º pago
             </label>
             <input
               type="date"
