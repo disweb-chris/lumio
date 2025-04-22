@@ -9,6 +9,7 @@ import {
   doc,
   query,
   where,
+  getDocs,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -16,10 +17,12 @@ import { formatearMoneda } from "../utils/format";
 import CategoriaForm from "../components/CategoriaForm";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import { convertirArsAUsdFijo } from "../utils/conversion";
+import dayjs from "dayjs";
 
 export default function Presupuestos() {
   const { user } = useAuth();
   const uid = user.uid;
+  const mesActual = dayjs().format("YYYY-MM");
 
   const [categorias, setCategorias] = useState([]);
   const [editando, setEditando] = useState(null);
@@ -27,26 +30,36 @@ export default function Presupuestos() {
   const [nuevoPresupuesto, setNuevoPresupuesto] = useState("");
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
+  // 1) Suscribirnos a la plantilla de categorías
   useEffect(() => {
-    const q = query(collection(db, "categorias"), where("uid", "==", uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setCategorias(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const qCat = query(collection(db, "categorias"), where("uid", "==", uid));
+    const unsub = onSnapshot(qCat, (snap) => {
+      setCategorias(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-
-    obtenerCotizacionUSD().then((valor) => {
-      if (valor) setCotizacionUSD(valor);
-    });
-
-    return () => unsubscribe();
+    obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
+    return () => unsub();
   }, [uid]);
 
-  // Agrega categoría guardando presupuesto y su equivalente USD fijo
+  // 2) Crear nueva categoría (plantilla) y su presupuesto del mes actual
   const agregarCategoria = async ({ nombre, presupuesto }) => {
     try {
       const conv = convertirArsAUsdFijo(presupuesto, cotizacionUSD);
-      await addDoc(collection(db, "categorias"), {
+
+      // 2.1) Guardar en plantilla
+      const catRef = await addDoc(collection(db, "categorias"), {
         uid,
         nombre,
+        presupuestoARS: presupuesto,
+        presupuestoUSD: parseFloat(conv.montoUSDConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+      });
+
+      // 2.2) Guardar en la colección mensual
+      await addDoc(collection(db, "presupuestos"), {
+        uid,
+        categoriaId: catRef.id,
+        nombre,
+        mes: mesActual,
         presupuestoARS: presupuesto,
         presupuestoUSD: parseFloat(conv.montoUSDConvertido),
         cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
@@ -57,7 +70,7 @@ export default function Presupuestos() {
     }
   };
 
-  // Actualiza categoría y recalcula USD fijo
+  // 3) Editar plantilla y presupuesto del mes actual
   const guardarCambios = async (id) => {
     const nombre = nuevoNombre.trim();
     const ars = parseFloat(nuevoPresupuesto);
@@ -67,12 +80,32 @@ export default function Presupuestos() {
     }
     try {
       const conv = convertirArsAUsdFijo(ars, cotizacionUSD);
+
+      // 3.1) Actualizar plantilla
       await updateDoc(doc(db, "categorias", id), {
         nombre,
         presupuestoARS: ars,
         presupuestoUSD: parseFloat(conv.montoUSDConvertido),
         cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
       });
+
+      // 3.2) Actualizar sólo el doc de este mes en 'presupuestos'
+      const presQuery = query(
+        collection(db, "presupuestos"),
+        where("uid", "==", uid),
+        where("categoriaId", "==", id),
+        where("mes", "==", mesActual)
+      );
+      const presSnap = await getDocs(presQuery);
+      for (const p of presSnap.docs) {
+        await updateDoc(doc(db, "presupuestos", p.id), {
+          nombre,
+          presupuestoARS: ars,
+          presupuestoUSD: parseFloat(conv.montoUSDConvertido),
+          cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+        });
+      }
+
       setEditando(null);
       setNuevoNombre("");
       setNuevoPresupuesto("");
@@ -82,10 +115,21 @@ export default function Presupuestos() {
     }
   };
 
+  // 4) Borrar plantilla y todos sus presupuestos en todos los meses
   const eliminarCategoria = async (id) => {
     if (!window.confirm("¿Eliminar esta categoría?")) return;
     try {
       await deleteDoc(doc(db, "categorias", id));
+
+      const presQuery = query(
+        collection(db, "presupuestos"),
+        where("uid", "==", uid),
+        where("categoriaId", "==", id)
+      );
+      const presSnap = await getDocs(presQuery);
+      for (const p of presSnap.docs) {
+        await deleteDoc(doc(db, "presupuestos", p.id));
+      }
     } catch (error) {
       console.error("Error al eliminar categoría:", error);
       alert("Error al eliminar categoría");
@@ -149,7 +193,7 @@ export default function Presupuestos() {
                   <p className="text-lg font-semibold">{cat.nombre}</p>
                   <p className="text-sm text-gray-600 dark:text-gray-300">
                     Presupuesto: {formatearMoneda(cat.presupuestoARS)} ARS / u$d{" "}
-                    {cat.presupuestoUSD.toFixed(2)}
+                    {cat.presupuestoUSD.toFixed(2)} ({mesActual})
                   </p>
                 </div>
                 <div className="flex gap-2">

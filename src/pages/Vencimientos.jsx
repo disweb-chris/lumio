@@ -19,6 +19,7 @@ import AlertaVencimiento from "../components/AlertaVencimiento";
 import { formatearMoneda } from "../utils/format";
 import FiltroMes from "../components/FiltroMes";
 import dayjs from "dayjs";
+import { toast } from "react-toastify";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import { convertirUsdAArsFijo, convertirArsAUsdFijo } from "../utils/conversion";
 
@@ -54,11 +55,15 @@ export default function Vencimientos() {
     return () => unsub();
   }, [uid]);
 
-  // Marca/desmarca pagado y crea/elimina gasto asociado
+  // Marca/desmarca pagado, crea/elimina gasto y genera siguiente vencimiento si es recurrente
   const togglePagado = async (id, pagado, item) => {
     const ref = doc(db, "vencimientos", id);
+
     if (!pagado) {
+      // 1) Marcar como pagado
       await updateDoc(ref, { pagado: true });
+
+      // 2) Crear gasto asociado
       const gasto = {
         uid,
         categoria: item.categoria,
@@ -80,7 +85,50 @@ export default function Vencimientos() {
       }
       const gastoRef = await addDoc(collection(db, "gastos"), gasto);
       await updateDoc(ref, { idGasto: gastoRef.id });
+
+      // 3) Si es recurrente, crear el vencimiento del próximo mes
+      if (item.recurrente) {
+        const fechaActual = item.fecha?.toDate
+          ? item.fecha.toDate()
+          : new Date(item.fecha);
+        const proximoMesDate = dayjs(fechaActual).add(1, "month").toDate();
+        const proximoMesStr = dayjs(proximoMesDate).format("YYYY-MM");
+        const fechaFormateada = dayjs(proximoMesDate).format("DD/MM/YYYY");
+
+        const nuevoVencimiento = {
+          uid,
+          descripcion: item.descripcion,
+          fecha: Timestamp.fromDate(proximoMesDate),
+          metodoPago: item.metodoPago,
+          recurrente: true,
+          categoria: item.categoria,
+          moneda: item.moneda,
+          montoARS: item.montoARS ?? null,
+          montoARSConvertido: item.montoARSConvertido ?? null,
+          montoUSD: item.montoUSD ?? null,
+          montoUSDConvertido: item.montoUSDConvertido ?? null,
+          cotizacionAlMomento: item.cotizacionAlMomento ?? null,
+          pagado: false,
+          idGasto: null,
+        };
+        const newRef = await addDoc(
+          collection(db, "vencimientos"),
+          nuevoVencimiento
+        );
+
+        // Feedback al usuario y console.log
+        toast.success(`Nuevo vencimiento para ${fechaFormateada}`);
+        console.log(
+          "Vencimiento recurrente creado:",
+          newRef.id,
+          fechaFormateada
+        );
+
+        // Mover el filtro al mes siguiente
+        setMesSeleccionado(proximoMesStr);
+      }
     } else {
+      // 4) Desmarcar pagado y eliminar gasto asociado si existe
       await updateDoc(ref, { pagado: false });
       if (item.idGasto) {
         await deleteDoc(doc(db, "gastos", item.idGasto));
@@ -128,6 +176,7 @@ export default function Vencimientos() {
     const ref = doc(db, "vencimientos", nuevo.id);
     const data = { ...nuevo };
     delete data.id;
+
     if (nuevo.montoUSD != null) {
       const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
       Object.assign(data, {
@@ -149,6 +198,7 @@ export default function Vencimientos() {
         montoARSConvertido: null,
       });
     }
+
     await updateDoc(ref, data);
     setEditando(null);
   };
@@ -205,11 +255,15 @@ export default function Vencimientos() {
           </p>
         ) : (
           lista.map((item) => {
-            const dateObj = item.fecha?.toDate ? item.fecha.toDate() : new Date(item.fecha);
-            // Garantizar valores numéricos para toFixed
-            const usdAmount = Number(item.montoUSD ?? item.montoUSDConvertido ?? 0).toFixed(2);
-            const arsAmount = Number(item.montoARS ?? item.montoARSConvertido ?? 0);
-            const arsFormatted = formatearMoneda(arsAmount);
+            const dateObj = item.fecha?.toDate
+              ? item.fecha.toDate()
+              : new Date(item.fecha);
+            const usdAmount = Number(
+              item.montoUSD ?? item.montoUSDConvertido ?? 0
+            ).toFixed(2);
+            const arsAmount = Number(
+              item.montoARS ?? item.montoARSConvertido ?? 0
+            );
             return (
               <li
                 key={item.id}
@@ -221,10 +275,14 @@ export default function Vencimientos() {
                     Fecha: {dayjs(dateObj).format("DD/MM/YYYY")}
                   </p>
                   <p className="text-sm text-gray-500">
-                    Monto:{' '}
-                    {item.moneda === 'USD'
-                      ? `u$d ${item.montoUSD.toFixed(2)} / $${formatearMoneda(item.montoARSConvertido)}`
-                      : `$${formatearMoneda(item.montoARS)} / u$d ${item.montoUSDConvertido.toFixed(2)}`}
+                    Monto:{" "}
+                    {item.moneda === "USD"
+                      ? `u$d ${item.montoUSD.toFixed(2)} / $${formatearMoneda(
+                          item.montoARSConvertido
+                        )}`
+                      : `$${formatearMoneda(item.montoARS)} / u$d ${item.montoUSDConvertido.toFixed(
+                          2
+                        )}`}
                   </p>
                   <p className="text-sm text-gray-500">
                     Categoría: {item.categoria}
@@ -241,7 +299,7 @@ export default function Vencimientos() {
                     onClick={() => togglePagado(item.id, item.pagado, item)}
                     className="text-sm px-3 py-1 rounded bg-blue-600 text-white hover:bg-blue-700"
                   >
-                    {item.pagado ? 'Desmarcar' : 'Marcar pagado'}
+                    {item.pagado ? "Desmarcar" : "Marcar pagado"}
                   </button>
                   <button
                     onClick={() => setEditando(item)}
