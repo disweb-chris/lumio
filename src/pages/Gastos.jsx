@@ -11,6 +11,7 @@ import {
   query,
   where,
   orderBy,
+  getDocs,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -29,6 +30,17 @@ export default function Gastos() {
   const [abiertos, setAbiertos] = useState([dayjs().format("YYYY-MM")]);
   const [cargando, setCargando] = useState(true);
 
+  // Helper para crear Date local desde "YYYY-MM-DD"
+  const toDateLocal = (dateVal) => {
+    if (dateVal instanceof Date) return dateVal;
+    if (typeof dateVal === "string") {
+      const [year, month, day] = dateVal.split("-");
+      return new Date(Number(year), Number(month) - 1, Number(day));
+    }
+    return new Date(dateVal);
+  };
+
+  // 1) Suscripción a Firestore
   useEffect(() => {
     if (!uid) return;
     const q = query(
@@ -47,17 +59,16 @@ export default function Gastos() {
     return () => unsub();
   }, [uid]);
 
-  // Agregar gasto con conversión fija
+  // 2) Crear gasto con conversión fija y fecha local
   const agregarGasto = async (nuevo) => {
     const cot = await obtenerCotizacionUSD();
+    const dateObj = toDateLocal(nuevo.fecha);
     const docData = {
       uid,
       categoria: nuevo.categoria,
       descripcion: nuevo.descripcion,
       metodoPago: nuevo.metodoPago,
-      fecha: Timestamp.fromDate(
-        nuevo.fecha instanceof Date ? nuevo.fecha : new Date(nuevo.fecha)
-      ),
+      fecha: Timestamp.fromDate(dateObj),
       timestamp: Timestamp.now(),
     };
     if (nuevo.montoUSD != null) {
@@ -80,17 +91,16 @@ export default function Gastos() {
     await addDoc(collection(db, "gastos"), docData);
   };
 
-  // Actualizar gasto recalculando conversión
+  // 3) Actualizar gasto recalculando conversión y fecha local
   const actualizarGasto = async (nuevo) => {
     const cot = await obtenerCotizacionUSD();
     const ref = doc(db, "gastos", nuevo.id);
+    const dateObj = toDateLocal(nuevo.fecha);
     const updated = {
       categoria: nuevo.categoria,
       descripcion: nuevo.descripcion,
       metodoPago: nuevo.metodoPago,
-      fecha: Timestamp.fromDate(
-        nuevo.fecha instanceof Date ? nuevo.fecha : new Date(nuevo.fecha)
-      ),
+      fecha: Timestamp.fromDate(dateObj),
     };
     if (nuevo.montoUSD != null) {
       const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
@@ -99,9 +109,9 @@ export default function Gastos() {
         montoUSD: parseFloat(conv.montoUSD),
         montoARSConvertido: parseFloat(conv.montoARSConvertido),
         cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+        montoARS: null,
+        montoUSDConvertido: null,
       });
-      updated.montoARS = null;
-      updated.montoUSDConvertido = null;
     } else {
       const conv2 = convertirArsAUsdFijo(nuevo.monto, cot);
       Object.assign(updated, {
@@ -109,24 +119,29 @@ export default function Gastos() {
         montoARS: parseFloat(conv2.montoARS),
         montoUSDConvertido: parseFloat(conv2.montoUSDConvertido),
         cotizacionAlMomento: parseFloat(conv2.cotizacionAlMomento),
+        montoUSD: null,
+        montoARSConvertido: null,
       });
-      updated.montoUSD = null;
-      updated.montoARSConvertido = null;
     }
     await updateDoc(ref, updated);
     setEditando(null);
   };
 
+  // 4) Eliminar gasto
   const eliminarGasto = async (id) => {
     if (window.confirm("¿Eliminar este gasto?")) {
       await deleteDoc(doc(db, "gastos", id));
     }
   };
 
-  // Agrupar por mes con fecha robusta
+  // 5) Agrupar por mes
   const gastosPorMes = gastos.reduce((acc, g) => {
     const raw = g.fecha;
-    const date = raw.toDate ? raw.toDate() : raw instanceof Date ? raw : new Date(raw);
+    const date = raw.toDate
+      ? raw.toDate()
+      : raw instanceof Date
+      ? raw
+      : new Date(raw);
     const mes = dayjs(date).format("YYYY-MM");
     (acc[mes] ??= []).push(g);
     return acc;
@@ -155,9 +170,13 @@ export default function Gastos() {
         .map((mes) => (
           <div key={mes} className="mb-4">
             <button
-              onClick={() => setAbiertos((prev) =>
-                prev.includes(mes) ? prev.filter((m) => m !== mes) : [...prev, mes]
-              )}
+              onClick={() =>
+                setAbiertos((prev) =>
+                  prev.includes(mes)
+                    ? prev.filter((m) => m !== mes)
+                    : [...prev, mes]
+                )
+              }
               className="w-full text-left bg-gray-200 dark:bg-gray-700 px-3 py-2 rounded font-semibold"
             >
               {dayjs(mes + "-01").format("MMMM YYYY")} (
@@ -168,20 +187,29 @@ export default function Gastos() {
               <ul className="mt-2 space-y-3">
                 {gastosPorMes[mes].map((g) => {
                   const raw = g.fecha;
-                  const dateObj = raw.toDate ? raw.toDate() : raw instanceof Date ? raw : new Date(raw);
+                  const dateObj = raw.toDate
+                    ? raw.toDate()
+                    : g.fecha instanceof Date
+                    ? g.fecha
+                    : new Date(g.fecha);
                   return (
                     <li
                       key={g.id}
                       className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-start"
                     >
                       <div>
-                        <p className="text-lg font-semibold">{g.descripcion}</p>
+                        <p className="text-lg font-semibold">
+                          {g.descripcion}
+                        </p>
                         <p className="text-sm text-gray-500">
-                          Monto: {g.moneda === 'USD'
+                          Monto:{" "}
+                          {g.moneda === "USD"
                             ? `u$d ${parseFloat(g.montoUSD).toFixed(2)}`
                             : `$${formatearMoneda(g.montoARS)} ARS`}
                         </p>
-                        <p className="text-sm text-gray-500">Categoría: {g.categoria}</p>
+                        <p className="text-sm text-gray-500">
+                          Categoría: {g.categoria}
+                        </p>
                         <p className="text-sm text-gray-400 mt-1">
                           {dayjs(dateObj).format("DD/MM/YYYY")}
                         </p>

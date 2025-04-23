@@ -22,7 +22,7 @@ function App() {
   const { user } = useAuth();
 
   return (
-    <div className="dark">
+    <div>
       <Router>
         <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-black dark:text-white p-4">
           {/* Mostrar navbar solo si el usuario está autenticado */}
