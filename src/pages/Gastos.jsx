@@ -11,7 +11,6 @@ import {
   query,
   where,
   orderBy,
-  getDocs,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
@@ -30,14 +29,15 @@ export default function Gastos() {
   const [abiertos, setAbiertos] = useState([dayjs().format("YYYY-MM")]);
   const [cargando, setCargando] = useState(true);
 
-  // Helper para crear Date local desde "YYYY-MM-DD"
-  const toDateLocal = (dateVal) => {
-    if (dateVal instanceof Date) return dateVal;
-    if (typeof dateVal === "string") {
-      const [year, month, day] = dateVal.split("-");
-      return new Date(Number(year), Number(month) - 1, Number(day));
+  // Convierte "YYYY-MM-DD" en Date a las 12:00 de ese día, hora local
+  const toNoonLocal = (dateStrOrDate) => {
+    if (dateStrOrDate instanceof Date) {
+      const d = dateStrOrDate;
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
     }
-    return new Date(dateVal);
+    // string "YYYY-MM-DD"
+    const [year, month, day] = dateStrOrDate.split("-").map(Number);
+    return new Date(year, month - 1, day, 12, 0, 0);
   };
 
   // 1) Suscripción a Firestore
@@ -59,16 +59,16 @@ export default function Gastos() {
     return () => unsub();
   }, [uid]);
 
-  // 2) Crear gasto con conversión fija y fecha local
+  // 2) Agregar gasto con conversión y fecha a mediodía
   const agregarGasto = async (nuevo) => {
     const cot = await obtenerCotizacionUSD();
-    const dateObj = toDateLocal(nuevo.fecha);
+    const fechaDate = toNoonLocal(nuevo.fecha);
     const docData = {
       uid,
       categoria: nuevo.categoria,
       descripcion: nuevo.descripcion,
       metodoPago: nuevo.metodoPago,
-      fecha: Timestamp.fromDate(dateObj),
+      fecha: Timestamp.fromDate(fechaDate),
       timestamp: Timestamp.now(),
     };
     if (nuevo.montoUSD != null) {
@@ -91,16 +91,16 @@ export default function Gastos() {
     await addDoc(collection(db, "gastos"), docData);
   };
 
-  // 3) Actualizar gasto recalculando conversión y fecha local
+  // 3) Actualizar gasto con la misma lógica de fecha
   const actualizarGasto = async (nuevo) => {
     const cot = await obtenerCotizacionUSD();
     const ref = doc(db, "gastos", nuevo.id);
-    const dateObj = toDateLocal(nuevo.fecha);
+    const fechaDate = toNoonLocal(nuevo.fecha);
     const updated = {
       categoria: nuevo.categoria,
       descripcion: nuevo.descripcion,
       metodoPago: nuevo.metodoPago,
-      fecha: Timestamp.fromDate(dateObj),
+      fecha: Timestamp.fromDate(fechaDate),
     };
     if (nuevo.montoUSD != null) {
       const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
@@ -127,7 +127,7 @@ export default function Gastos() {
     setEditando(null);
   };
 
-  // 4) Eliminar gasto
+  // 4) Eliminar
   const eliminarGasto = async (id) => {
     if (window.confirm("¿Eliminar este gasto?")) {
       await deleteDoc(doc(db, "gastos", id));
@@ -137,11 +137,7 @@ export default function Gastos() {
   // 5) Agrupar por mes
   const gastosPorMes = gastos.reduce((acc, g) => {
     const raw = g.fecha;
-    const date = raw.toDate
-      ? raw.toDate()
-      : raw instanceof Date
-      ? raw
-      : new Date(raw);
+    const date = raw.toDate ? raw.toDate() : new Date(raw);
     const mes = dayjs(date).format("YYYY-MM");
     (acc[mes] ??= []).push(g);
     return acc;
@@ -189,9 +185,7 @@ export default function Gastos() {
                   const raw = g.fecha;
                   const dateObj = raw.toDate
                     ? raw.toDate()
-                    : g.fecha instanceof Date
-                    ? g.fecha
-                    : new Date(g.fecha);
+                    : new Date(raw);
                   return (
                     <li
                       key={g.id}

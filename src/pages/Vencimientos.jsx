@@ -30,12 +30,11 @@ export default function Vencimientos() {
   const [vencimientos, setVencimientos] = useState([]);
   const [cotizacionUSD, setCotizacionUSD] = useState(1);
   const [editando, setEditando] = useState(null);
-  const [mesSeleccionado, setMesSeleccionado] = useState(
-    dayjs().format("YYYY-MM")
-  );
+  const [mesSeleccionado, setMesSeleccionado] = useState(dayjs().format("YYYY-MM"));
   const [verPagados, setVerPagados] = useState(false);
   const [cargando, setCargando] = useState(true);
 
+  // 1) Suscripción a Firestore
   useEffect(() => {
     if (!uid) return;
     const q = query(
@@ -45,25 +44,25 @@ export default function Vencimientos() {
     );
     const unsub = onSnapshot(
       q,
-      (snap) => {
-        setVencimientos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      snap => {
+        setVencimientos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
         setCargando(false);
       },
-      (err) => console.warn("Error al cargar vencimientos:", err)
+      err => console.warn("Error al cargar vencimientos:", err)
     );
-    obtenerCotizacionUSD().then((v) => v && setCotizacionUSD(v));
+    obtenerCotizacionUSD().then(v => v && setCotizacionUSD(v));
     return () => unsub();
   }, [uid]);
 
-  // Marca/desmarca pagado, crea/elimina gasto y genera siguiente vencimiento si es recurrente
+  // 2) Marcar/desmarcar pagado y manejar recurrentes
   const togglePagado = async (id, pagado, item) => {
     const ref = doc(db, "vencimientos", id);
 
     if (!pagado) {
-      // 1) Marcar como pagado
+      // A) Marcar pagado
       await updateDoc(ref, { pagado: true });
 
-      // 2) Crear gasto asociado
+      // B) Crear gasto asociado
       const gasto = {
         uid,
         categoria: item.categoria,
@@ -73,32 +72,42 @@ export default function Vencimientos() {
         timestamp: Timestamp.now(),
       };
       if (item.moneda === "USD") {
-        gasto.moneda = "USD";
-        gasto.montoUSD = item.montoUSD;
-        gasto.montoARSConvertido = item.montoARSConvertido;
-        gasto.cotizacionAlMomento = item.cotizacionAlMomento;
+        Object.assign(gasto, {
+          moneda: "USD",
+          montoUSD: item.montoUSD,
+          montoARSConvertido: item.montoARSConvertido,
+          cotizacionAlMomento: item.cotizacionAlMomento,
+        });
       } else {
-        gasto.moneda = "ARS";
-        gasto.montoARS = item.montoARS;
-        gasto.montoUSDConvertido = item.montoUSDConvertido;
-        gasto.cotizacionAlMomento = item.cotizacionAlMomento;
+        Object.assign(gasto, {
+          moneda: "ARS",
+          montoARS: item.montoARS,
+          montoUSDConvertido: item.montoUSDConvertido,
+          cotizacionAlMomento: item.cotizacionAlMomento,
+        });
       }
       const gastoRef = await addDoc(collection(db, "gastos"), gasto);
       await updateDoc(ref, { idGasto: gastoRef.id });
 
-      // 3) Si es recurrente, crear el vencimiento del próximo mes
+      // C) Si es recurrente, clonar al mes siguiente
       if (item.recurrente) {
-        const fechaActual = item.fecha?.toDate
+        const actualDate = item.fecha?.toDate
           ? item.fecha.toDate()
+          : item.fecha instanceof Date
+          ? item.fecha
           : new Date(item.fecha);
-        const proximoMesDate = dayjs(fechaActual).add(1, "month").toDate();
-        const proximoMesStr = dayjs(proximoMesDate).format("YYYY-MM");
-        const fechaFormateada = dayjs(proximoMesDate).format("DD/MM/YYYY");
 
-        const nuevoVencimiento = {
+        const next = dayjs(actualDate)
+          .add(1, "month")
+          .hour(0)
+          .minute(0)
+          .second(0)
+          .toDate();
+
+        const nuevoVto = {
           uid,
           descripcion: item.descripcion,
-          fecha: Timestamp.fromDate(proximoMesDate),
+          fecha: Timestamp.fromDate(next),
           metodoPago: item.metodoPago,
           recurrente: true,
           categoria: item.categoria,
@@ -111,24 +120,15 @@ export default function Vencimientos() {
           pagado: false,
           idGasto: null,
         };
-        const newRef = await addDoc(
-          collection(db, "vencimientos"),
-          nuevoVencimiento
-        );
+        await addDoc(collection(db, "vencimientos"), nuevoVto);
 
-        // Feedback al usuario y console.log
-        toast.success(`Nuevo vencimiento para ${fechaFormateada}`);
-        console.log(
-          "Vencimiento recurrente creado:",
-          newRef.id,
-          fechaFormateada
-        );
-
-        // Mover el filtro al mes siguiente
-        setMesSeleccionado(proximoMesStr);
+        const mesSig = dayjs(next).format("YYYY-MM");
+        const fmt = dayjs(next).format("DD/MM/YYYY");
+        toast.success(`Nuevo vencimiento para ${fmt}`);
+        setMesSeleccionado(mesSig);
       }
     } else {
-      // 4) Desmarcar pagado y eliminar gasto asociado si existe
+      // Desmarcar y borrar gasto
       await updateDoc(ref, { pagado: false });
       if (item.idGasto) {
         await deleteDoc(doc(db, "gastos", item.idGasto));
@@ -137,22 +137,28 @@ export default function Vencimientos() {
     }
   };
 
-  // Eliminar vencimiento (y gasto asociado si existe)
-  const eliminarVencimiento = async (item) => {
-    if (window.confirm("¿Eliminar este vencimiento?")) {
-      if (item.pagado && item.idGasto) {
-        await deleteDoc(doc(db, "gastos", item.idGasto));
-      }
-      await deleteDoc(doc(db, "vencimientos", item.id));
+  // 3) Eliminar vencimiento (y gasto si existiera)
+  const eliminarVencimiento = async item => {
+    if (!window.confirm("¿Eliminar este vencimiento?")) return;
+    if (item.pagado && item.idGasto) {
+      await deleteDoc(doc(db, "gastos", item.idGasto));
     }
+    await deleteDoc(doc(db, "vencimientos", item.id));
   };
 
-  // Agregar y actualizar con conversión fija
-  const handleAgregar = async (nuevo) => {
-    const cot = cotizacionUSD;
-    const base = { ...nuevo, uid, pagado: false, categoria: nuevo.categoria };
+  // 4) Agregar nuevo vencimiento
+  const handleAgregar = async nuevo => {
+    const fechaDate = new Date(`${nuevo.fecha}T00:00`);
+    const base = {
+      ...nuevo,
+      uid,
+      pagado: false,
+      categoria: nuevo.categoria,
+      fecha: Timestamp.fromDate(fechaDate),
+    };
+
     if (nuevo.montoUSD != null) {
-      const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
+      const conv = convertirUsdAArsFijo(nuevo.montoUSD, cotizacionUSD);
       Object.assign(base, {
         moneda: "USD",
         montoUSD: parseFloat(conv.montoUSD),
@@ -160,7 +166,7 @@ export default function Vencimientos() {
         cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
       });
     } else {
-      const conv = convertirArsAUsdFijo(nuevo.montoARS, cot);
+      const conv = convertirArsAUsdFijo(nuevo.montoARS, cotizacionUSD);
       Object.assign(base, {
         moneda: "ARS",
         montoARS: parseFloat(conv.montoARS),
@@ -168,18 +174,21 @@ export default function Vencimientos() {
         cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
       });
     }
+
     await addDoc(collection(db, "vencimientos"), base);
   };
 
-  const handleActualizar = async (nuevo) => {
-    const cot = cotizacionUSD;
+  // 5) Actualizar vencimiento existente
+  const handleActualizar = async nuevo => {
     const ref = doc(db, "vencimientos", nuevo.id);
-    const data = { ...nuevo };
-    delete data.id;
+    const datos = { ...nuevo };
+    delete datos.id;
+
+    datos.fecha = Timestamp.fromDate(new Date(`${nuevo.fecha}T00:00`));
 
     if (nuevo.montoUSD != null) {
-      const conv = convertirUsdAArsFijo(nuevo.montoUSD, cot);
-      Object.assign(data, {
+      const conv = convertirUsdAArsFijo(nuevo.montoUSD, cotizacionUSD);
+      Object.assign(datos, {
         moneda: "USD",
         montoUSD: parseFloat(conv.montoUSD),
         montoARSConvertido: parseFloat(conv.montoARSConvertido),
@@ -188,8 +197,8 @@ export default function Vencimientos() {
         montoUSDConvertido: null,
       });
     } else {
-      const conv = convertirArsAUsdFijo(nuevo.montoARS, cot);
-      Object.assign(data, {
+      const conv = convertirArsAUsdFijo(nuevo.montoARS, cotizacionUSD);
+      Object.assign(datos, {
         moneda: "ARS",
         montoARS: parseFloat(conv.montoARS),
         montoUSDConvertido: parseFloat(conv.montoUSDConvertido),
@@ -199,20 +208,22 @@ export default function Vencimientos() {
       });
     }
 
-    await updateDoc(ref, data);
+    await updateDoc(ref, datos);
     setEditando(null);
   };
 
-  // Filtrar por mes y estado pagado
+  // 6) Filtrar lista por mes y estado
   const lista = vencimientos
-    .filter((v) =>
-      mesSeleccionado === "todos"
-        ? true
-        : dayjs(
-            v.fecha?.toDate ? v.fecha.toDate() : v.fecha
-          ).format("YYYY-MM") === mesSeleccionado
-    )
-    .filter((v) => (verPagados ? v.pagado : !v.pagado));
+    .filter(v => {
+      const dateObj = v.fecha?.toDate
+        ? v.fecha.toDate()
+        : v.fecha instanceof Date
+        ? v.fecha
+        : new Date(v.fecha);
+      if (mesSeleccionado === "todos") return true;
+      return dayjs(dateObj).format("YYYY-MM") === mesSeleccionado;
+    })
+    .filter(v => (verPagados ? v.pagado : !v.pagado));
 
   if (cargando) {
     return (
@@ -233,37 +244,24 @@ export default function Vencimientos() {
       />
 
       <div className="flex flex-wrap items-center gap-4 mb-4">
-        <FiltroMes
-          items={vencimientos}
-          onMesChange={setMesSeleccionado}
-          onFiltrar={() => {}}
-        />
+        <FiltroMes items={vencimientos} onMesChange={setMesSeleccionado} onFiltrar={() => {}} />
         <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={verPagados}
-            onChange={(e) => setVerPagados(e.target.checked)}
-          />
+          <input type="checkbox" checked={verPagados} onChange={e => setVerPagados(e.target.checked)} />
           Ver vencimientos pagados
         </label>
       </div>
 
       <ul className="space-y-2">
         {lista.length === 0 ? (
-          <p className="text-gray-500 dark:text-gray-300">
-            No hay vencimientos para este filtro.
-          </p>
+          <p className="text-gray-500 dark:text-gray-300">No hay vencimientos para este filtro.</p>
         ) : (
-          lista.map((item) => {
+          lista.map(item => {
             const dateObj = item.fecha?.toDate
               ? item.fecha.toDate()
+              : item.fecha instanceof Date
+              ? item.fecha
               : new Date(item.fecha);
-            const usdAmount = Number(
-              item.montoUSD ?? item.montoUSDConvertido ?? 0
-            ).toFixed(2);
-            const arsAmount = Number(
-              item.montoARS ?? item.montoARSConvertido ?? 0
-            );
+
             return (
               <li
                 key={item.id}
@@ -271,26 +269,16 @@ export default function Vencimientos() {
               >
                 <div>
                   <p className="text-lg font-semibold">{item.descripcion}</p>
-                  <p className="text-sm text-gray-500">
-                    Fecha: {dayjs(dateObj).format("DD/MM/YYYY")}
-                  </p>
+                  <p className="text-sm text-gray-500">Fecha: {dayjs(dateObj).format("DD/MM/YYYY")}</p>
                   <p className="text-sm text-gray-500">
                     Monto:{" "}
                     {item.moneda === "USD"
-                      ? `u$d ${item.montoUSD.toFixed(2)} / $${formatearMoneda(
-                          item.montoARSConvertido
-                        )}`
-                      : `$${formatearMoneda(item.montoARS)} / u$d ${item.montoUSDConvertido.toFixed(
-                          2
-                        )}`}
+                      ? `u$d ${item.montoUSD.toFixed(2)} / $${formatearMoneda(item.montoARSConvertido)}`
+                      : `$${formatearMoneda(item.montoARS)} / u$d ${item.montoUSDConvertido.toFixed(2)}`}
                   </p>
-                  <p className="text-sm text-gray-500">
-                    Categoría: {item.categoria}
-                  </p>
+                  <p className="text-sm text-gray-500">Categoría: {item.categoria}</p>
                   {item.recurrente && (
-                    <span className="text-xs text-purple-500 font-semibold block mt-1">
-                      🔁 Recurrente mensual
-                    </span>
+                    <span className="text-xs text-purple-500 font-semibold block mt-1">🔁 Recurrente mensual</span>
                   )}
                 </div>
                 <div className="flex gap-2 items-center">
