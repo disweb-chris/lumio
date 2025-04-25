@@ -1,3 +1,5 @@
+// src/components/CategoriaCard.jsx
+import React from "react";
 import { formatearMoneda } from "../utils/format";
 
 export default function CategoriaCard({ nombre, presupuesto = 0, gastado = 0 }) {
@@ -20,11 +22,17 @@ export default function CategoriaCard({ nombre, presupuesto = 0, gastado = 0 }) 
         Gastado: ${formatearMoneda(gastado)}
       </p>
       <p
-        className={`mt-2 font-bold ${
+        className={`mt-2 font-bold flex items-center ${
           negativo ? "text-red-600" : "text-green-500"
         }`}
       >
         Saldo: ${formatearMoneda(saldo)}
+        <abbr
+          title="Saldo restante: presupuesto - gastado"
+          className="ml-1 text-xs text-gray-400 dark:text-gray-500 cursor-help"
+        >
+          ℹ️
+        </abbr>
       </p>
     </div>
   );
