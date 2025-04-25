@@ -1,3 +1,4 @@
+// src/context/AuthContext.jsx
 import { createContext, useContext, useEffect, useState } from "react";
 import { auth } from "../firebase";
 import {
@@ -30,8 +31,10 @@ export function AuthProvider({ children }) {
   const logout = () => signOut(auth);
 
   return (
-    <AuthContext.Provider value={{ user, login, registro, logout }}>
-      {!cargando && children}
+    <AuthContext.Provider
+      value={{ user, login, registro, logout, cargando }}
+    >
+      {children}
     </AuthContext.Provider>
   );
 }
