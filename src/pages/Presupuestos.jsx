@@ -142,7 +142,7 @@ export default function Presupuestos() {
         Presupuestos por categoría
       </h2>
 
-      <CategoriaForm onAgregar={agregarCategoria} />
+      <CategoriaForm onAgregar={agregarCategoria}categorias={categorias} />
 
       <ul className="space-y-3 mt-4">
         {categorias.map((cat) => (
