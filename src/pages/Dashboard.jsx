@@ -12,6 +12,7 @@ import { db } from "../firebase";
 import { useAuth } from "../context/AuthContext";
 import CategoriaCard from "../components/CategoriaCard";
 import { formatearMoneda } from "../utils/format";
+import { esPagoConTarjeta } from "../utils/pago";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import CotizacionDolarModal from "../components/CotizacionDolarModal";
 import FiltroMes from "../components/FiltroMes";
@@ -222,9 +223,9 @@ export default function Dashboard() {
       (i.montoRecibido || 0) / (i.cotizacionAlMomento || cotizacionUSD)
   );
 
-  // Gastos NO tarjeta (afectan disponible)
+  // Gastos NO con tarjeta (incluye Mercado Pago ahora)
   const gastosNoTarj = gastosFiltrados.filter(
-    (g) => !g.metodoPago.toLowerCase().includes("tarjeta")
+    (g) => !esPagoConTarjeta(g.metodoPago)
   );
   const totalGastosNoTarjARS = sumArr(gastosNoTarj, (g) =>
     g.montoARS ?? g.montoARSConvertido ?? 0
@@ -235,9 +236,9 @@ export default function Dashboard() {
     return (g.montoARS ?? 0) / (g.cotizacionAlMomento || cotizacionUSD);
   });
 
-  // Gastos tarjeta (solo mostrar)
+  // Gastos con tarjeta (ahora incluye Mercado Pago)
   const gastosTarj = gastosFiltrados.filter((g) =>
-    g.metodoPago.toLowerCase().includes("tarjeta")
+    esPagoConTarjeta(g.metodoPago)
   );
   const totalTarjetaARS = sumArr(gastosTarj, (g) =>
     g.montoARS ?? g.montoARSConvertido ?? 0

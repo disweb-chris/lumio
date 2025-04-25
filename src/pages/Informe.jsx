@@ -19,6 +19,7 @@ import dayjs from "dayjs";
 import FiltroMes from "../components/FiltroMes";
 import { formatearMoneda } from "../utils/format";
 import { useAuth } from "../context/AuthContext";
+import { esPagoConTarjeta } from "../utils/pago";
 
 const COLORS = [
   "#4F46E5",
@@ -44,10 +45,7 @@ export default function Informe() {
       setGastos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
 
-    const qV = query(
-      collection(db, "vencimientos"),
-      where("uid", "==", uid)
-    );
+    const qV = query(collection(db, "vencimientos"), where("uid", "==", uid));
     const unsubV = onSnapshot(qV, (snap) => {
       setVencimientos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
@@ -62,7 +60,7 @@ export default function Informe() {
     };
   }, [uid]);
 
-  // recuperar montos fijos guardados en ARS/USD
+  // Recuperar montos fijos
   const valorARS = (item) => item.montoARSConvertido ?? item.montoARS ?? 0;
   const valorUSD = (item) => {
     if (item.montoUSD != null) return item.montoUSD;
@@ -76,16 +74,17 @@ export default function Informe() {
   const mostrarFixed = (ars, usd) =>
     `${formatearMoneda(ars)} ARS / u$d ${usd.toFixed(2)}`;
 
-  // filtrar por mes
+  // Filtrar por mes
   const filtrarPorMes = (arr) =>
     arr.filter(
       (x) =>
-        dayjs(x.fecha?.toDate ? x.fecha.toDate() : x.fecha).format("YYYY-MM") === mes
+        dayjs(x.fecha?.toDate ? x.fecha.toDate() : x.fecha).format("YYYY-MM") ===
+        mes
     );
   const gastosMes = filtrarPorMes(gastos);
   const vencPagadosMes = filtrarPorMes(vencimientos).filter((v) => v.pagado);
 
-  // datos pastel
+  // Datos para el pie
   const dataPorCat = {};
   gastosMes.forEach((g) => {
     if (!g.categoria) return;
@@ -98,12 +97,10 @@ export default function Informe() {
   const dataPie = Object.entries(dataPorCat).map(([name, value]) => ({ name, value }));
   const totalPie = dataPie.reduce((sum, d) => sum + d.value, 0);
 
-  // evolución mensual gastos totales
+  // Evolución mensual
   const gastosPorMesObj = {};
   gastos.forEach((g) => {
-    const m = dayjs(
-      g.fecha?.toDate ? g.fecha.toDate() : g.fecha
-    ).format("YYYY-MM");
+    const m = dayjs(g.fecha?.toDate ? g.fecha.toDate() : g.fecha).format("YYYY-MM");
     gastosPorMesObj[m] = (gastosPorMesObj[m] || 0) + valorARS(g);
   });
   const dataLine = Object.entries(gastosPorMesObj).map(([m, v]) => ({
@@ -111,18 +108,15 @@ export default function Informe() {
     total: v,
   }));
 
-  // consumo tarjeta este mes
-  const isTarjeta = (m) => m?.toLowerCase().includes("tarjeta");
-  const totalTarjetaARS = gastosMes.reduce(
-    (sum, g) => (isTarjeta(g.metodoPago) ? sum + valorARS(g) : sum),
-    0
-  );
-  const totalTarjetaUSD = gastosMes.reduce(
-    (sum, g) => (isTarjeta(g.metodoPago) ? sum + valorUSD(g) : sum),
-    0
-  );
+  // Consumo con tarjeta (incluye Mercado Pago)
+  const totalTarjetaARS = gastosMes
+    .filter((g) => esPagoConTarjeta(g.metodoPago))
+    .reduce((sum, g) => sum + valorARS(g), 0);
+  const totalTarjetaUSD = gastosMes
+    .filter((g) => esPagoConTarjeta(g.metodoPago))
+    .reduce((sum, g) => sum + valorUSD(g), 0);
 
-  // consumo por método y desglose
+  // Consumo por método
   const consumoMetodoARS = {};
   const consumoMetodoUSD = {};
   gastosMes.forEach((g) => {
@@ -131,10 +125,11 @@ export default function Informe() {
     consumoMetodoUSD[m] = (consumoMetodoUSD[m] || 0) + valorUSD(g);
   });
 
+  // Desglose por tarjeta
   const desgloseTarARS = {};
   const desgloseTarUSD = {};
   gastosMes.forEach((g) => {
-    if (!isTarjeta(g.metodoPago)) return;
+    if (!esPagoConTarjeta(g.metodoPago)) return;
     const t = g.metodoPago.replace(/^Tarjeta:?\s*/i, "").trim();
     desgloseTarARS[t] = desgloseTarARS[t] || {};
     desgloseTarARS[t][g.categoria || "Sin categoría"] =
@@ -155,9 +150,7 @@ export default function Informe() {
       {gastosMes.length > 0 && (
         <div className="text-sm text-purple-700 dark:text-purple-300 mb-4">
           💳 Consumo con tarjeta este mes:{" "}
-          <span className="font-medium">
-            {mostrarFixed(totalTarjetaARS, totalTarjetaUSD)}
-          </span>
+          {mostrarFixed(totalTarjetaARS, totalTarjetaUSD)}
         </div>
       )}
 
@@ -185,7 +178,9 @@ export default function Informe() {
                 ))}
               </Pie>
               <Tooltip
-                formatter={(v) => mostrarFixed(v, +(v / cotizacionUSD).toFixed(2))}
+                formatter={(v) =>
+                  mostrarFixed(v, +(v / cotizacionUSD).toFixed(2))
+                }
               />
             </PieChart>
           </ResponsiveContainer>
@@ -202,14 +197,13 @@ export default function Informe() {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="mes" />
               <YAxis />
-              <Tooltip formatter={(v) => mostrarFixed(v, +(v / cotizacionUSD).toFixed(2))} />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="total"
-                stroke="#4F46E5"
-                name="Gastos"
+              <Tooltip
+                formatter={(v) =>
+                  mostrarFixed(v, +(v / cotizacionUSD).toFixed(2))
+                }
               />
+              <Legend />
+              <Line type="monotone" dataKey="total" stroke="#4F46E5" name="Gastos" />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -237,8 +231,12 @@ export default function Informe() {
                 >
                   <td className="px-4 py-2">{item.name}</td>
                   <td className="px-4 py-2">{formatearMoneda(item.value)}</td>
-                  <td className="px-4 py-2">{valorUSD({ montoARSConvertido: item.value, cotizacionAlMomento: cotizacionUSD }).toFixed(2)}</td>
-                  <td className="px-4 py-2">{((item.value / totalPie) * 100).toFixed(1)}%</td>
+                  <td className="px-4 py-2">
+                    {valorUSD({ montoARSConvertido: item.value, cotizacionAlMomento: cotizacionUSD }).toFixed(2)}
+                  </td>
+                  <td className="px-4 py-2">
+                    {((item.value / totalPie) * 100).toFixed(1)}%
+                  </td>
                 </tr>
               ))}
             </tbody>

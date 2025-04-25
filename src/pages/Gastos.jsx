@@ -19,6 +19,7 @@ import { formatearMoneda } from "../utils/format";
 import dayjs from "dayjs";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import { convertirUsdAArsFijo, convertirArsAUsdFijo } from "../utils/conversion";
+import { esPagoConTarjeta } from "../utils/pago";
 
 export default function Gastos() {
   const { user } = useAuth();
@@ -26,21 +27,24 @@ export default function Gastos() {
 
   const [gastos, setGastos] = useState([]);
   const [editando, setEditando] = useState(null);
-  const [abiertos, setAbiertos] = useState([dayjs().format("YYYY-MM")]);
   const [cargando, setCargando] = useState(true);
+  const [openCats, setOpenCats] = useState({}); // estado para cada acordeón
 
-  // Convierte "YYYY-MM-DD" en Date a las 12:00 de ese día, hora local
+  // Convierte fecha a mediodía
   const toNoonLocal = (dateStrOrDate) => {
     if (dateStrOrDate instanceof Date) {
-      const d = dateStrOrDate;
-      return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0);
+      return new Date(
+        dateStrOrDate.getFullYear(),
+        dateStrOrDate.getMonth(),
+        dateStrOrDate.getDate(),
+        12, 0, 0
+      );
     }
-    // string "YYYY-MM-DD"
     const [year, month, day] = dateStrOrDate.split("-").map(Number);
     return new Date(year, month - 1, day, 12, 0, 0);
   };
 
-  // 1) Suscripción a Firestore
+  // Suscripción a Firestore
   useEffect(() => {
     if (!uid) return;
     const q = query(
@@ -59,7 +63,7 @@ export default function Gastos() {
     return () => unsub();
   }, [uid]);
 
-  // 2) Agregar gasto con conversión y fecha a mediodía
+  // Agregar gasto
   const agregarGasto = async (nuevo) => {
     const cot = await obtenerCotizacionUSD();
     const fechaDate = toNoonLocal(nuevo.fecha);
@@ -91,7 +95,7 @@ export default function Gastos() {
     await addDoc(collection(db, "gastos"), docData);
   };
 
-  // 3) Actualizar gasto con la misma lógica de fecha
+  // Actualizar gasto
   const actualizarGasto = async (nuevo) => {
     const cot = await obtenerCotizacionUSD();
     const ref = doc(db, "gastos", nuevo.id);
@@ -108,7 +112,7 @@ export default function Gastos() {
         moneda: "USD",
         montoUSD: parseFloat(conv.montoUSD),
         montoARSConvertido: parseFloat(conv.montoARSConvertido),
-        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+        cotizacionAlMomento: parseFloat(conv.montoARSConvertido),
         montoARS: null,
         montoUSDConvertido: null,
       });
@@ -127,21 +131,12 @@ export default function Gastos() {
     setEditando(null);
   };
 
-  // 4) Eliminar
+  // Eliminar gasto
   const eliminarGasto = async (id) => {
     if (window.confirm("¿Eliminar este gasto?")) {
       await deleteDoc(doc(db, "gastos", id));
     }
   };
-
-  // 5) Agrupar por mes
-  const gastosPorMes = gastos.reduce((acc, g) => {
-    const raw = g.fecha;
-    const date = raw.toDate ? raw.toDate() : new Date(raw);
-    const mes = dayjs(date).format("YYYY-MM");
-    (acc[mes] ??= []).push(g);
-    return acc;
-  }, {});
 
   if (cargando) {
     return (
@@ -150,6 +145,18 @@ export default function Gastos() {
       </div>
     );
   }
+
+  // Agrupar por categoría
+  const gastosPorCategoria = gastos.reduce((acc, g) => {
+    const cat = g.categoria || "Sin categoría";
+    (acc[cat] ??= []).push(g);
+    return acc;
+  }, {});
+
+  // Función para alternar acordeón
+  const toggleCat = (cat) => {
+    setOpenCats((prev) => ({ ...prev, [cat]: !prev[cat] }));
+  };
 
   return (
     <div>
@@ -160,75 +167,68 @@ export default function Gastos() {
         onCancelEdit={() => setEditando(null)}
       />
 
-      {Object.keys(gastosPorMes)
-        .sort()
-        .reverse()
-        .map((mes) => (
-          <div key={mes} className="mb-4">
-            <button
-              onClick={() =>
-                setAbiertos((prev) =>
-                  prev.includes(mes)
-                    ? prev.filter((m) => m !== mes)
-                    : [...prev, mes]
-                )
-              }
-              className="w-full text-left bg-gray-200 dark:bg-gray-700 px-3 py-2 rounded font-semibold"
-            >
-              {dayjs(mes + "-01").format("MMMM YYYY")} (
-              {gastosPorMes[mes].length}) {abiertos.includes(mes) ? "▲" : "▼"}
-            </button>
-
-            {abiertos.includes(mes) && (
-              <ul className="mt-2 space-y-3">
-                {gastosPorMes[mes].map((g) => {
-                  const raw = g.fecha;
-                  const dateObj = raw.toDate
-                    ? raw.toDate()
-                    : new Date(raw);
-                  return (
-                    <li
-                      key={g.id}
-                      className="p-4 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-start"
-                    >
-                      <div>
-                        <p className="text-lg font-semibold">
-                          {g.descripcion}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Monto:{" "}
-                          {g.moneda === "USD"
-                            ? `u$d ${parseFloat(g.montoUSD).toFixed(2)}`
-                            : `$${formatearMoneda(g.montoARS)} ARS`}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Categoría: {g.categoria}
-                        </p>
-                        <p className="text-sm text-gray-400 mt-1">
-                          {dayjs(dateObj).format("DD/MM/YYYY")}
-                        </p>
-                      </div>
-                      <div className="flex flex-col gap-2 items-end">
-                        <button
-                          onClick={() => setEditando(g)}
-                          className="text-blue-600 border border-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-50"
-                        >
-                          ✏️ Editar
-                        </button>
-                        <button
-                          onClick={() => eliminarGasto(g.id)}
-                          className="text-red-600 border border-red-600 px-3 py-1 rounded text-sm hover:bg-red-50"
-                        >
-                          🗑 Eliminar
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        ))}
+      {Object.entries(gastosPorCategoria).map(([categoria, items]) => (
+        <div key={categoria} className="mb-4 border rounded-lg overflow-hidden">
+          <button
+            onClick={() => toggleCat(categoria)}
+            className="w-full text-left bg-gray-200 dark:bg-gray-700 px-4 py-2 flex justify-between items-center"
+          >
+            <span className="font-semibold text-gray-800 dark:text-gray-200">
+              {categoria} ({items.length})
+            </span>
+            <span className="text-xl">{openCats[categoria] ? "−" : "+"}</span>
+          </button>
+          {openCats[categoria] && (
+            <ul className="divide-y divide-gray-300 dark:divide-gray-600">
+              {items.map((g) => {
+                const raw = g.fecha;
+                const dateObj = raw.toDate ? raw.toDate() : new Date(raw);
+                const isTarjeta = esPagoConTarjeta(g.metodoPago);
+                return (
+                  <li
+                    key={g.id}
+                    className={`px-4 py-3 bg-white dark:bg-gray-800 flex justify-between items-start ${
+                      isTarjeta ? "border-l-4 border-blue-500" : ""
+                    }`}
+                  >
+                    <div>
+                      <p className="text-lg font-semibold flex items-center">
+                        {isTarjeta && (
+                          <span className="mr-2 text-blue-600">💳</span>
+                        )}
+                        {g.descripcion}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        Monto:{" "}
+                        {g.moneda === "USD"
+                          ? `u$d ${parseFloat(g.montoUSD).toFixed(2)}`
+                          : `$${formatearMoneda(g.montoARS)}`}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        Fecha: {dayjs(dateObj).format("DD/MM/YYYY")}
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 items-end">
+                      <button
+                        onClick={() => setEditando(g)}
+                        className="text-blue-600 border border-blue-600 px-3 py-1 rounded text-sm hover:bg-blue-50"
+                      >
+                        ✏️ Editar
+                      </button>
+                      <button
+                        onClick={() => eliminarGasto(g.id)}
+                        className="text-red-600 border border-red-600 px-3 py-1 rounded text-sm hover:bg-red-50"
+                      >
+                        🗑 Eliminar
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
