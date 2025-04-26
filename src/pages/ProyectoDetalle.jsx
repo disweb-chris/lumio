@@ -33,9 +33,10 @@ export default function ProyectoDetalle() {
   // 1) Proyecto
   useEffect(() => {
     const ref = doc(db, "proyectos", id);
-    return onSnapshot(ref, (snap) => {
+    const unsub = onSnapshot(ref, (snap) => {
       if (snap.exists()) setProyecto({ id: snap.id, ...snap.data() });
     });
+    return () => unsub();
   }, [id]);
 
   // 2) Pagos
@@ -45,9 +46,10 @@ export default function ProyectoDetalle() {
       where("proyectoId", "==", id),
       where("uid", "==", uid)
     );
-    return onSnapshot(pagosQ, (snap) => {
-      setPagos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    const unsub = onSnapshot(pagosQ, (snap) =>
+      setPagos(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+    return () => unsub();
   }, [id, uid]);
 
   // 3) Ingresos al proyecto
@@ -57,9 +59,10 @@ export default function ProyectoDetalle() {
       where("proyectoId", "==", id),
       where("uid", "==", uid)
     );
-    return onSnapshot(ingQ, (snap) => {
-      setIngresosProyecto(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    const unsub = onSnapshot(ingQ, (snap) =>
+      setIngresosProyecto(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+    return () => unsub();
   }, [id, uid]);
 
   // 4) Colaboradores
@@ -68,9 +71,10 @@ export default function ProyectoDetalle() {
       collection(db, "colaboradores"),
       where("uid", "==", uid)
     );
-    return onSnapshot(colQ, (snap) => {
-      setColaboradores(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    const unsub = onSnapshot(colQ, (snap) =>
+      setColaboradores(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
+    );
+    return () => unsub();
   }, [uid]);
 
   // 5) Cotización dólar
@@ -80,7 +84,7 @@ export default function ProyectoDetalle() {
 
   if (!proyecto) return <p>Cargando proyecto…</p>;
 
-  // Totales
+  // Totales en moneda del proyecto
   const totalPagado = pagos.reduce((sum, p) => {
     const m =
       proyecto.moneda === "USD"
@@ -88,12 +92,24 @@ export default function ProyectoDetalle() {
         : Number(p.montoARS || 0);
     return sum + m;
   }, 0);
-  const restante = proyecto.presupuesto - totalPagado;
 
   const totalIngresos = ingresosProyecto.reduce((sum, i) => {
-    const ars = i.montoARS || i.montoARSConvertido || 0;
-    return sum + ars;
+    if (proyecto.moneda === "USD") {
+      return (
+        sum +
+        (i.moneda === "USD"
+          ? Number(i.montoUSD || 0)
+          : Number(i.montoUSDConvertido || 0))
+      );
+    } else {
+      return (
+        sum +
+        (Number(i.montoARS || 0) || Number(i.montoARSConvertido || 0))
+      );
+    }
   }, 0);
+
+  const disponible = totalIngresos - totalPagado;
 
   return (
     <div className="space-y-6">
@@ -107,10 +123,17 @@ export default function ProyectoDetalle() {
           Presupuesto: {proyecto.presupuesto} {proyecto.moneda}
         </p>
         <p>
-          Pagado: {totalPagado} {proyecto.moneda} / Restante: {restante}{" "}
+          Pagado: {totalPagado.toFixed(2)} {proyecto.moneda} / Restante:{" "}
+          {(proyecto.presupuesto - totalPagado).toFixed(2)}{" "}
           {proyecto.moneda}
         </p>
-        <p>Ingresos recibidos (ARS): {totalIngresos}</p>
+        <p>
+          Ingresos recibidos: {totalIngresos.toFixed(2)} {proyecto.moneda}
+        </p>
+        <p className="font-semibold">
+          Disponible: {disponible.toFixed(2)}{" "}
+          {proyecto.moneda}
+        </p>
       </div>
 
       {/* Registrar ingreso al proyecto */}
@@ -121,10 +144,16 @@ export default function ProyectoDetalle() {
         <ProyectoIngresoForm
           cotizacionUSD={cotizacionUSD}
           onAgregarIngreso={async (ingreso) => {
+            const fecha1 = Timestamp.fromDate(new Date(ingreso.fecha1));
+            const fecha2 = ingreso.fecha2
+              ? Timestamp.fromDate(new Date(ingreso.fecha2))
+              : null;
             await addDoc(collection(db, "ingresosProyecto"), {
               uid,
               proyectoId: id,
               ...ingreso,
+              fecha1,
+              fecha2,
               creadoEn: Timestamp.now(),
             });
           }}
@@ -145,15 +174,20 @@ export default function ProyectoDetalle() {
               >
                 <div>
                   <div className="font-medium">
-                    {i.moneda === "USD"
+                    {proyecto.moneda === "USD"
                       ? `u$d ${i.montoUSD || 0}`
                       : `$${i.montoARS || 0} ARS`}
                   </div>
-                  <div className="text-sm text-gray-500">Fecha: {i.fecha1}</div>
+                  <div className="text-sm text-gray-500">
+                    Fecha:{" "}
+                    {i.fecha1.toDate
+                      ? i.fecha1.toDate().toLocaleDateString()
+                      : new Date(i.fecha1).toLocaleDateString()}
+                  </div>
                 </div>
                 <div className="text-xs text-gray-400">
-                  {i.creadoEn?.toDate
-                    ? new Date(i.creadoEn.toDate()).toLocaleDateString()
+                  {i.creadoEn.toDate
+                    ? i.creadoEn.toDate().toLocaleDateString()
                     : new Date(i.creadoEn).toLocaleDateString()}
                 </div>
               </li>
@@ -162,7 +196,7 @@ export default function ProyectoDetalle() {
         )}
       </div>
 
-      {/* Registrar pagos y su historial (igual que antes) */}
+      {/* Registrar y editar pagos */}
       <div className="bg-white dark:bg-gray-800 p-4 rounded shadow">
         <h2 className="text-xl font-semibold mb-4">
           {editandoPago ? "Editar pago" : "Registrar pago"}
@@ -227,8 +261,8 @@ export default function ProyectoDetalle() {
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <span className="text-xs text-gray-400">
-                    {p.creadoEn?.toDate
-                      ? new Date(p.creadoEn.toDate()).toLocaleDateString()
+                    {p.creadoEn.toDate
+                      ? p.creadoEn.toDate().toLocaleDateString()
                       : new Date(p.creadoEn).toLocaleDateString()}
                   </span>
                   <div className="flex gap-2">
@@ -239,7 +273,9 @@ export default function ProyectoDetalle() {
                       ✏️
                     </button>
                     <button
-                      onClick={() => deleteDoc(doc(db, "pagos", p.id))}
+                      onClick={async () =>
+                        await deleteDoc(doc(db, "pagos", p.id))
+                      }
                       className="bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 text-sm"
                     >
                       🗑
