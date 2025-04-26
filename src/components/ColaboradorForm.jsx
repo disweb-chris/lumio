@@ -1,47 +1,78 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { OPCIONES_PAGO } from "../constants/pagos"; // puedes extraer este array a un constants/pagos.js
 
 export default function ColaboradorForm({
   colaboradores = [],
-  onAgregar,
-  onCancel,       // opcional, para editar
-  editando = null // objeto { id, nombre, rol } o null
+  onGuardar,
+  editando = null,
+  onCancel,
 }) {
-  const [nombre, setNombre] = useState(editando?.nombre || "");
-  const [rol, setRol] = useState(editando?.rol || "");
+  const [nombre, setNombre] = useState("");
+  const [rol, setRol] = useState("");
+  const [dni, setDni] = useState("");
+  const [email, setEmail] = useState("");
+  const [telefono, setTelefono] = useState("");
+  const [metodosPago, setMetodosPago] = useState([]);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (editando) {
+      // Al iniciar edición, cargo todos los campos
+      setNombre(editando.nombre || "");
+      setRol(editando.rol || "");
+      setDni(editando.dni || "");
+      setEmail(editando.email || "");
+      setTelefono(editando.telefono || "");
+      setMetodosPago(editando.metodosPago || []);
+    } else {
+      // Al salir de edición (o en alta), reseteo TODO
+      setNombre("");
+      setRol("");
+      setDni("");
+      setEmail("");
+      setTelefono("");
+      setMetodosPago([]);
+    }
+    setError("");
+  }, [editando]);
+
+  const handleCheckbox = (op) => {
+    setMetodosPago((prev) =>
+      prev.includes(op) ? prev.filter((m) => m !== op) : [...prev, op]
+    );
+  };
+
+  const validarEmail = (em) => /^\S+@\S+\.\S+$/.test(em);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     setError("");
 
     const nombreTrim = nombre.trim();
-    if (!nombreTrim) {
-      setError("El nombre es obligatorio.");
-      return;
-    }
-    // evitar duplicados (case-insensitive, trim)
+    if (!nombreTrim) return setError("El nombre es obligatorio.");
     if (
       colaboradores.some(
         (c) =>
           c.nombre.trim().toLowerCase() === nombreTrim.toLowerCase() &&
           c.id !== editando?.id
       )
-    ) {
-      setError("Ya existe un colaborador con ese nombre.");
-      return;
-    }
+    )
+      return setError("Ya existe un colaborador con ese nombre.");
+    if (!/^\d+$/.test(dni.trim())) return setError("DNI inválido.");
+    if (!validarEmail(email.trim())) return setError("Email inválido.");
+    if (!telefono.trim()) return setError("El teléfono es obligatorio.");
+    if (metodosPago.length === 0)
+      return setError("Selecciona al menos un método de pago.");
 
-    onAgregar({ 
-      id: editando?.id, 
-      nombre: nombreTrim, 
-      rol: rol.trim() 
+    onGuardar({
+      id: editando?.id,
+      nombre: nombreTrim,
+      rol: rol.trim(),
+      dni: dni.trim(),
+      email: email.trim(),
+      telefono: telefono.trim(),
+      metodosPago,
     });
-
-    // reset si es un alta
-    if (!editando) {
-      setNombre("");
-      setRol("");
-    }
   };
 
   return (
@@ -49,38 +80,103 @@ export default function ColaboradorForm({
       onSubmit={handleSubmit}
       className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6"
     >
-      <h2 className="text-xl font-semibold mb-2 text-gray-800 dark:text-white">
+      <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-white">
         {editando ? "Editar colaborador" : "Nuevo colaborador"}
       </h2>
 
-      {error && (
-        <p className="text-sm text-red-500 mb-3">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
 
-      <input
-        type="text"
-        value={nombre}
-        onChange={(e) => {
-          setError("");
-          setNombre(e.target.value);
-        }}
-        placeholder="Nombre completo"
-        className="w-full mb-2 p-2 rounded border dark:bg-gray-700 dark:text-white"
-      />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Nombre */}
+        <div>
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+            Nombre *
+          </label>
+          <input
+            type="text"
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+            className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+          />
+        </div>
 
-      <input
-        type="text"
-        value={rol}
-        onChange={(e) => setRol(e.target.value)}
-        placeholder="Rol (opcional)"
-        className="w-full mb-4 p-2 rounded border dark:bg-gray-700 dark:text-white"
-      />
+        {/* DNI */}
+        <div>
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+            DNI *
+          </label>
+          <input
+            type="text"
+            value={dni}
+            onChange={(e) => setDni(e.target.value)}
+            className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+          />
+        </div>
 
-      <div className="flex gap-2">
+        {/* Email */}
+        <div>
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+            Email *
+          </label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+          />
+        </div>
+
+        {/* Teléfono */}
+        <div>
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+            Teléfono *
+          </label>
+          <input
+            type="text"
+            value={telefono}
+            onChange={(e) => setTelefono(e.target.value)}
+            className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+          />
+        </div>
+
+        {/* Rol */}
+        <div className="sm:col-span-2">
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+            Rol
+          </label>
+          <input
+            type="text"
+            value={rol}
+            onChange={(e) => setRol(e.target.value)}
+            className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
+          />
+        </div>
+
+        {/* Métodos de pago */}
+        <div className="sm:col-span-2">
+          <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+            Métodos de pago *
+          </label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {OPCIONES_PAGO.map((op) => (
+              <label key={op} className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={metodosPago.includes(op)}
+                  onChange={() => handleCheckbox(op)}
+                  className="accent-blue-600"
+                />
+                <span className="text-gray-700 dark:text-gray-300">{op}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex gap-2">
         <button
           type="submit"
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50"
-          disabled={!nombre.trim()}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
         >
           {editando ? "Guardar cambios" : "Agregar colaborador"}
         </button>

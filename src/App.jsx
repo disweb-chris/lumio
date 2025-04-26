@@ -1,3 +1,4 @@
+// src/App.jsx
 import {
   BrowserRouter as Router,
   Routes,
@@ -11,6 +12,10 @@ import Gastos from "./pages/Gastos";
 import Ingresos from "./pages/Ingresos";
 import Vencimientos from "./pages/Vencimientos";
 import Informe from "./pages/Informe";
+import Colaboradores from "./pages/Colaboradores";
+import ImagineMenu from "./components/ImagineMenu";
+import Proyectos from "./pages/Proyectos";
+import ProyectoDetalle from "./pages/ProyectoDetalle";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -21,20 +26,23 @@ import "react-toastify/dist/ReactToastify.css";
 function App() {
   const { user } = useAuth();
 
+  // clase común para cada <li>
+  const navItemClass =
+    "px-3 py-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700";
+
   return (
     <div>
       <Router>
         <div className="min-h-screen bg-gray-100 dark:bg-gray-900 text-black dark:text-white p-4">
-          {/* Mostrar navbar solo si el usuario está autenticado */}
           {user && (
-            <nav className="mb-6 overflow-x-auto border-b border-gray-300 dark:border-gray-700">
+            <nav className="mb-6 overflow-visible border-b border-gray-300 dark:border-gray-700">
               <ul className="flex flex-wrap sm:flex-nowrap gap-4 whitespace-nowrap py-3 px-2">
-                <li>
+                <li className={navItemClass}>
                   <Link to="/" className="text-blue-600 dark:text-blue-400">
                     Dashboard
                   </Link>
                 </li>
-                <li>
+                <li className={navItemClass}>
                   <Link
                     to="/presupuestos"
                     className="text-blue-600 dark:text-blue-400"
@@ -42,7 +50,7 @@ function App() {
                     Presupuestos
                   </Link>
                 </li>
-                <li>
+                <li className={navItemClass}>
                   <Link
                     to="/gastos"
                     className="text-blue-600 dark:text-blue-400"
@@ -50,7 +58,7 @@ function App() {
                     Gastos
                   </Link>
                 </li>
-                <li>
+                <li className={navItemClass}>
                   <Link
                     to="/ingresos"
                     className="text-blue-600 dark:text-blue-400"
@@ -58,7 +66,7 @@ function App() {
                     Ingresos
                   </Link>
                 </li>
-                <li>
+                <li className={navItemClass}>
                   <Link
                     to="/vencimientos"
                     className="text-blue-600 dark:text-blue-400"
@@ -66,7 +74,7 @@ function App() {
                     Vencimientos
                   </Link>
                 </li>
-                <li>
+                <li className={navItemClass}>
                   <Link
                     to="/informe"
                     className="text-blue-600 dark:text-blue-400"
@@ -74,6 +82,8 @@ function App() {
                     Informe
                   </Link>
                 </li>
+                {/* Submenu “Imagine” */}
+                <ImagineMenu />
               </ul>
             </nav>
           )}
@@ -85,6 +95,30 @@ function App() {
               element={
                 <ProtectedRoute>
                   <Dashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/proyectos"
+              element={
+                <ProtectedRoute>
+                  <Proyectos />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/proyectos/:id"
+              element={
+                <ProtectedRoute>
+                  <ProyectoDetalle />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/colaboradores"
+              element={
+                <ProtectedRoute>
+                  <Colaboradores />
                 </ProtectedRoute>
               }
             />
