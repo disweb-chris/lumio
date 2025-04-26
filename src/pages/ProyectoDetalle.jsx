@@ -8,6 +8,8 @@ import {
   query,
   where,
   addDoc,
+  updateDoc,
+  deleteDoc,
   Timestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -22,79 +24,104 @@ export default function ProyectoDetalle() {
   const [proyecto, setProyecto] = useState(null);
   const [pagos, setPagos] = useState([]);
   const [colaboradores, setColaboradores] = useState([]);
+  const [editandoPago, setEditandoPago] = useState(null);
 
-  // 1) Traer datos del proyecto
+  // 1) Cargar proyecto
   useEffect(() => {
     const ref = doc(db, "proyectos", id);
-    const unsub = onSnapshot(ref, (snap) => {
+    return onSnapshot(ref, (snap) => {
       if (snap.exists()) setProyecto({ id: snap.id, ...snap.data() });
     });
-    return () => unsub();
   }, [id]);
 
-  // 2) Traer pagos de este proyecto (filtrado por proyectoId y uid)
+  // 2) Cargar pagos
   useEffect(() => {
     const pagosQuery = query(
       collection(db, "pagos"),
       where("proyectoId", "==", id),
       where("uid", "==", uid)
     );
-    const unsub = onSnapshot(pagosQuery, (snap) => {
+    return onSnapshot(pagosQuery, (snap) => {
       setPagos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-    return () => unsub();
   }, [id, uid]);
 
-  // 3) Traer colaboradores del usuario
+  // 3) Cargar colaboradores
   useEffect(() => {
     const colQuery = query(
       collection(db, "colaboradores"),
       where("uid", "==", uid)
     );
-    const unsub = onSnapshot(colQuery, (snap) => {
+    return onSnapshot(colQuery, (snap) => {
       setColaboradores(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-    return () => unsub();
   }, [uid]);
 
   if (!proyecto) return <p>Cargando proyecto…</p>;
 
-  // Cálculo de totales
+  // Totales
   const totalPagado = pagos.reduce((sum, p) => {
-    return sum + (proyecto.moneda === "USD" ? (p.montoUSD || 0) : (p.montoARS || 0));
+    const monto = proyecto.moneda === "USD"
+      ? Number(p.montoUSD || 0)
+      : Number(p.montoARS || 0);
+    return sum + monto;
   }, 0);
   const restante = proyecto.presupuesto - totalPagado;
+
+  // Handlers
+  const crearPago = async (pago) => {
+    const colabor = colaboradores.find(c => c.id === pago.colaboradorId);
+    await addDoc(collection(db, "pagos"), {
+      uid,
+      proyectoId: id,
+      ...pago,
+      colaboradorNombre: colabor?.nombre || "",
+      creadoEn: Timestamp.now(),
+    });
+  };
+
+  const actualizarPago = async (pago) => {
+    const ref = doc(db, "pagos", pago.id);
+    const colabor = colaboradores.find(c => c.id === pago.colaboradorId);
+    await updateDoc(ref, {
+      ...pago,
+      colaboradorNombre: colabor?.nombre || "",
+    });
+    setEditandoPago(null);
+  };
+
+  const eliminarPago = async (pagoId) => {
+    if (window.confirm("¿Eliminar este pago?")) {
+      await deleteDoc(doc(db, "pagos", pagoId));
+    }
+  };
 
   return (
     <div className="space-y-6">
       {/* Encabezado */}
       <div>
         <h1 className="text-2xl font-bold">{proyecto.nombre}</h1>
-        <p className="text-sm text-gray-500">Descripción: {proyecto.descripcion}</p>
-        <p>
-          Presupuesto: {proyecto.presupuesto} {proyecto.moneda}
+        <p className="text-sm text-gray-500">
+          Descripción: {proyecto.descripcion}
         </p>
+        <p>Presupuesto: {proyecto.presupuesto} {proyecto.moneda}</p>
         <p>
           Pagado: {totalPagado} {proyecto.moneda} / Restante: {restante}{" "}
           {proyecto.moneda}
         </p>
       </div>
 
-      {/* Formulario de pagos */}
+      {/* Formulario de pago (nueva o edición) */}
       <div className="bg-white dark:bg-gray-800 p-4 rounded shadow">
-        <h2 className="text-xl font-semibold mb-4">Registrar pago</h2>
+        <h2 className="text-xl font-semibold mb-4">
+          {editandoPago ? "Editar pago" : "Registrar pago"}
+        </h2>
         <PaymentForm
-          proyectoId={id}
           colaboradores={colaboradores}
-          onAgregarPago={async (pago) => {
-            await addDoc(collection(db, "pagos"), {
-                uid, 
-                proyectoId: id, 
-                ...pago, 
-                colaboradorNombre: colabor?.nombre || "",  // <-- aquí guardamos el nombre 
-                creadoEn: Timestamp.now(), 
-              });
-          }}
+          pagoInicial={editandoPago}
+          onAgregarPago={crearPago}
+          onActualizarPago={actualizarPago}
+          onCancelEdit={() => setEditandoPago(null)}
         />
       </div>
 
@@ -108,7 +135,7 @@ export default function ProyectoDetalle() {
             {pagos.map((p) => (
               <li
                 key={p.id}
-                className="p-3 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-center"
+                className="p-3 bg-white dark:bg-gray-800 rounded shadow flex justify-between items-start"
               >
                 <div>
                   <div className="font-medium">
@@ -117,14 +144,35 @@ export default function ProyectoDetalle() {
                       : `${p.montoARS || 0} ARS`}
                   </div>
                   <div className="text-sm text-gray-500">
+                    Descripción: {p.descripcion}
+                  </div>
+                  <div className="text-sm text-gray-500">
                     Método: {p.metodoPago}
                   </div>
                   <div className="text-sm text-gray-500">
                     Colaborador: {p.colaboradorNombre}
                   </div>
                 </div>
-                <div className="text-xs text-gray-400">
-                  {new Date(p.creadoEn.toDate()).toLocaleDateString()}
+                <div className="flex flex-col items-end gap-2">
+                  <span className="text-xs text-gray-400">
+                    {p.creadoEn?.toDate
+                      ? new Date(p.creadoEn.toDate()).toLocaleDateString()
+                      : new Date(p.creadoEn).toLocaleDateString()}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setEditandoPago(p)}
+                      className="bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 text-sm"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      onClick={() => eliminarPago(p.id)}
+                      className="bg-red-600 text-white px-2 py-1 rounded hover:bg-red-700 text-sm"
+                    >
+                      🗑
+                    </button>
+                  </div>
                 </div>
               </li>
             ))}
