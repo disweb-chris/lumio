@@ -254,25 +254,23 @@ export default function Dashboard() {
   const dineroDispUSD = totalIngresosUSD - totalGastosNoTarjUSD;
 
   // Ingresos pendientes
-  const ingresosPend = ingresosFiltrados.filter(
-    (i) =>
-      (i.montoRecibido || 0) <
-      ((i.moneda === "USD" ? i.montoUSD * i.cotizacionAlMomento : i.montoARS) ||
-        0)
-  );
-  const totalPendARS = sumArr(ingresosPend, (i) =>
-    (i.moneda === "USD"
-      ? i.montoUSD * i.cotizacionAlMomento
-      : i.montoARS) - (i.montoRecibido || 0)
-  );
-  const totalPendUSD = ingresosPend.reduce((sum, i) => {
-    const origARS =
-      i.moneda === "USD"
-        ? i.montoUSD * i.cotizacionAlMomento
-        : i.montoARS;
-    const pendARS = origARS - (i.montoRecibido || 0);
-    return sum + pendARS / (i.cotizacionAlMomento || cotizacionUSD);
+  const ingresosPend = ingresos.filter(i => {
+    const orig = i.moneda === "USD" ? i.montoARSConvertido : i.montoARS;
+    return (i.montoRecibido || 0) < orig;
+  });
+  
+  const totalPendARS = ingresosPend.reduce((sum, i) => {
+    const orig = i.moneda === "USD" ? i.montoARSConvertido : i.montoARS;
+    return sum + (orig - (i.montoRecibido || 0));
   }, 0);
+  
+  const totalPendUSD = ingresosPend.reduce((sum, i) => {
+    const orig = i.moneda === "USD" ? i.montoARSConvertido : i.montoARS;
+    const pendienteARS = orig - (i.montoRecibido || 0);
+    const cot = parseFloat(i.cotizacionAlMomento) || cotizacionUSD;
+    return sum + pendienteARS / cot;
+  }, 0);
+  
 
   // Vencimientos pendientes
   const venPend = vencimientosFiltrados.filter((v) => !v.pagado);
