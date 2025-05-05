@@ -20,31 +20,24 @@ import dayjs from "dayjs";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import { convertirUsdAArsFijo, convertirArsAUsdFijo } from "../utils/conversion";
 import { esPagoConTarjeta } from "../utils/pago";
+import FiltroMes from "../components/FiltroMes";
 
 export default function Gastos() {
   const { user } = useAuth();
   const uid = user?.uid;
 
+  // Datos
   const [gastos, setGastos] = useState([]);
   const [editando, setEditando] = useState(null);
   const [cargando, setCargando] = useState(true);
-  const [openCats, setOpenCats] = useState({}); // estado para cada acordeón
+  const [openCats, setOpenCats] = useState({}); // acordeón
 
-  // Convierte fecha a mediodía
-  const toNoonLocal = (dateStrOrDate) => {
-    if (dateStrOrDate instanceof Date) {
-      return new Date(
-        dateStrOrDate.getFullYear(),
-        dateStrOrDate.getMonth(),
-        dateStrOrDate.getDate(),
-        12, 0, 0
-      );
-    }
-    const [year, month, day] = dateStrOrDate.split("-").map(Number);
-    return new Date(year, month - 1, day, 12, 0, 0);
-  };
+  // Mes seleccionado para filtrar
+  const [mesSeleccionado, setMesSeleccionado] = useState(
+    dayjs().format("YYYY-MM")
+  );
 
-  // Suscripción a Firestore
+  // Suscripción a Firestore: todos los gastos del usuario
   useEffect(() => {
     if (!uid) return;
     const q = query(
@@ -62,11 +55,10 @@ export default function Gastos() {
     );
     return () => unsub();
   }, [uid]);
-
   // Agregar gasto
   const agregarGasto = async (nuevo) => {
     const cot = await obtenerCotizacionUSD();
-    const fechaDate = toNoonLocal(nuevo.fecha);
+    const fechaDate = new Date(nuevo.fecha + "T12:00:00");
     const docData = {
       uid,
       categoria: nuevo.categoria,
@@ -99,7 +91,7 @@ export default function Gastos() {
   const actualizarGasto = async (nuevo) => {
     const cot = await obtenerCotizacionUSD();
     const ref = doc(db, "gastos", nuevo.id);
-    const fechaDate = toNoonLocal(nuevo.fecha);
+    const fechaDate = new Date(nuevo.fecha + "T12:00:00");
     const updated = {
       categoria: nuevo.categoria,
       descripcion: nuevo.descripcion,
@@ -112,7 +104,7 @@ export default function Gastos() {
         moneda: "USD",
         montoUSD: parseFloat(conv.montoUSD),
         montoARSConvertido: parseFloat(conv.montoARSConvertido),
-        cotizacionAlMomento: parseFloat(conv.montoARSConvertido),
+        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
         montoARS: null,
         montoUSDConvertido: null,
       });
@@ -145,21 +137,32 @@ export default function Gastos() {
       </div>
     );
   }
+  // Filtrar solo los gastos del mes seleccionado
+  const gastosFiltradosMes = gastos.filter((g) => {
+    const fecha = g.fecha?.toDate
+      ? g.fecha.toDate()
+      : new Date(g.fecha);
+    return dayjs(fecha).format("YYYY-MM") === mesSeleccionado;
+  });
 
   // Agrupar por categoría
-  const gastosPorCategoria = gastos.reduce((acc, g) => {
+  const gastosPorCategoria = gastosFiltradosMes.reduce((acc, g) => {
     const cat = g.categoria || "Sin categoría";
     (acc[cat] ??= []).push(g);
     return acc;
   }, {});
 
-  // Función para alternar acordeón
-  const toggleCat = (cat) => {
+  const toggleCat = (cat) =>
     setOpenCats((prev) => ({ ...prev, [cat]: !prev[cat] }));
-  };
 
   return (
     <div>
+      {/* Selector de mes */}
+      <div className="mb-4">
+        <FiltroMes items={gastos} onMesChange={setMesSeleccionado} />
+      </div>
+
+      {/* Formulario */}
       <GastoForm
         onAgregarGasto={agregarGasto}
         editando={editando}
@@ -167,8 +170,12 @@ export default function Gastos() {
         onCancelEdit={() => setEditando(null)}
       />
 
+      {/* Listado agrupado por categoría */}
       {Object.entries(gastosPorCategoria).map(([categoria, items]) => (
-        <div key={categoria} className="mb-4 border rounded-lg overflow-hidden">
+        <div
+          key={categoria}
+          className="mb-4 border rounded-lg overflow-hidden"
+        >
           <button
             onClick={() => toggleCat(categoria)}
             className="w-full text-left bg-gray-200 dark:bg-gray-700 px-4 py-2 flex justify-between items-center"
@@ -176,13 +183,17 @@ export default function Gastos() {
             <span className="font-semibold text-gray-800 dark:text-gray-200">
               {categoria} ({items.length})
             </span>
-            <span className="text-xl">{openCats[categoria] ? "−" : "+"}</span>
+            <span className="text-xl">
+              {openCats[categoria] ? "−" : "+"}
+            </span>
           </button>
           {openCats[categoria] && (
             <ul className="divide-y divide-gray-300 dark:divide-gray-600">
               {items.map((g) => {
                 const raw = g.fecha;
-                const dateObj = raw.toDate ? raw.toDate() : new Date(raw);
+                const dateObj = raw.toDate
+                  ? raw.toDate()
+                  : new Date(raw);
                 const isTarjeta = esPagoConTarjeta(g.metodoPago);
                 return (
                   <li
