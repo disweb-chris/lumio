@@ -18,18 +18,22 @@ import PaymentForm from "../components/PaymentForm";
 import ProyectoIngresoForm from "../components/ProyectoIngresoForm";
 import { obtenerCotizacionUSD } from "../utils/configuracion";
 import { ResponsiveContainer, PieChart, Pie, Tooltip } from "recharts";
+import dayjs from "dayjs";
 
 export default function ProyectoDetalle() {
   const { id } = useParams();
   const { user } = useAuth();
   const uid = user.uid;
 
+  // State para seleccionar mes y cotización
+  const [selectedMonth, setSelectedMonth] = useState(dayjs().format("YYYY-MM"));
+  const [cotizacionUSD, setCotizacionUSD] = useState(1);
+
   const [proyecto, setProyecto] = useState(null);
   const [pagos, setPagos] = useState([]);
   const [ingresosProyecto, setIngresosProyecto] = useState([]);
   const [asignaciones, setAsignaciones] = useState([]);
   const [colaboradores, setColaboradores] = useState([]);
-  const [cotizacionUSD, setCotizacionUSD] = useState(1);
 
   // UI state
   const [activeTab, setActiveTab] = useState("ingresos");
@@ -40,49 +44,62 @@ export default function ProyectoDetalle() {
   // assignment inputs
   const [asigInputs, setAsigInputs] = useState({});
 
-  // --- subscriptions ---
+  // Generar opciones de meses (últimos 12)
+  const generarMeses = () => {
+    const meses = [];
+    const inicio = dayjs();
+    for (let i = 0; i < 12; i++) {
+      meses.push(inicio.subtract(i, "month").format("YYYY-MM"));
+    }
+    return meses;
+  };
+
+  // Suscripciones
   useEffect(() => {
     const ref = doc(db, "proyectos", id);
-    return onSnapshot(ref, (snap) => {
-      if (snap.exists()) setProyecto({ id: snap.id, ...snap.data() });
-    });
+    return onSnapshot(
+      ref,
+      (snap) => snap.exists() && setProyecto({ id: snap.id, ...snap.data() })
+    );
   }, [id]);
 
   useEffect(() => {
     const pagosQ = query(
       collection(db, "pagos"),
       where("proyectoId", "==", id),
-      where("uid", "==", uid)
+      where("uid", "==", uid),
+      where("mes", "==", selectedMonth)
     );
     return onSnapshot(pagosQ, (snap) =>
       setPagos(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     );
-  }, [id, uid]);
+  }, [id, uid, selectedMonth]);
 
   useEffect(() => {
     const ingQ = query(
       collection(db, "ingresosProyecto"),
       where("proyectoId", "==", id),
-      where("uid", "==", uid)
+      where("uid", "==", uid),
+      where("mes", "==", selectedMonth)
     );
     return onSnapshot(ingQ, (snap) =>
       setIngresosProyecto(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     );
-  }, [id, uid]);
+  }, [id, uid, selectedMonth]);
 
   useEffect(() => {
-    const asigCol = collection(db, "proyectos", id, "asignaciones");
-    return onSnapshot(asigCol, (snap) => {
+    const asigQ = query(
+      collection(db, "proyectos", id, "asignaciones"),
+      where("mes", "==", selectedMonth)
+    );
+    return onSnapshot(asigQ, (snap) => {
       const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setAsignaciones(arr);
-      // populate inputs
       const map = {};
-      arr.forEach((a) => {
-        map[a.colaboradorId] = a.montoAsignado;
-      });
+      arr.forEach((a) => (map[a.colaboradorId] = a.montoAsignado));
       setAsigInputs(map);
     });
-  }, [id]);
+  }, [id, selectedMonth]);
 
   useEffect(() => {
     const colQ = query(
@@ -100,7 +117,7 @@ export default function ProyectoDetalle() {
 
   if (!proyecto) return <p>Cargando proyecto…</p>;
 
-  // --- calculations ---
+  // Cálculos
   const totalPagado = pagos.reduce(
     (s, p) =>
       s +
@@ -110,15 +127,14 @@ export default function ProyectoDetalle() {
     0
   );
   const totalIngresos = ingresosProyecto.reduce((s, i) => {
-    if (proyecto.moneda === "USD") {
-      return (
-        s +
-        (i.moneda === "USD"
+    return (
+      s +
+      (proyecto.moneda === "USD"
+        ? i.moneda === "USD"
           ? Number(i.montoUSD || 0)
-          : Number(i.montoUSDConvertido || 0))
-      );
-    }
-    return s + (Number(i.montoARS || 0) || Number(i.montoARSConvertido || 0));
+          : Number(i.montoUSDConvertido || 0)
+        : Number(i.montoARS || i.montoARSConvertido || 0))
+    );
   }, 0);
   const disponible = totalIngresos - totalPagado;
   const pieData = [
@@ -128,6 +144,22 @@ export default function ProyectoDetalle() {
 
   return (
     <div className="space-y-6">
+      {/* Selector de mes */}
+      <div className="mb-4 flex items-center gap-2">
+        <label className="text-gray-700 dark:text-gray-300">Mes:</label>
+        <select
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          className="p-2 rounded border dark:bg-gray-700 dark:text-white"
+        >
+          {generarMeses().map((m) => (
+            <option key={m} value={m}>
+              {dayjs(m + "-01").format("MMMM YYYY")}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {/* Header summary */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="p-4 bg-white dark:bg-gray-800 rounded shadow text-center">
@@ -213,6 +245,7 @@ export default function ProyectoDetalle() {
                   await addDoc(collection(db, "ingresosProyecto"), {
                     uid,
                     proyectoId: id,
+                    mes: selectedMonth,
                     ...ing,
                     fecha1,
                     fecha2,
@@ -239,6 +272,7 @@ export default function ProyectoDetalle() {
                         ? `u$d ${i.montoUSD || 0}`
                         : `$${i.montoARS || 0} ARS`}
                     </p>
+                    <p className="text-sm text-gray-500">{i.descripcion}</p>
                     <p className="text-sm text-gray-500">
                       Fecha:{" "}
                       {i.fecha1.toDate
@@ -260,7 +294,7 @@ export default function ProyectoDetalle() {
       {/* Pagos Tab */}
       {activeTab === "pagos" && (
         <div>
-          {!(showPagoForm || editandoPago) ? (
+          {!showPagoForm && !editandoPago ? (
             <button
               onClick={() => setShowPagoForm(true)}
               className="mb-4 bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
@@ -288,6 +322,7 @@ export default function ProyectoDetalle() {
                   await addDoc(collection(db, "pagos"), {
                     uid,
                     proyectoId: id,
+                    mes: selectedMonth,
                     ...pago,
                     colaboradorNombre: colabor?.nombre || "",
                     creadoEn: Timestamp.now(),
@@ -358,124 +393,128 @@ export default function ProyectoDetalle() {
 
       {/* Asignaciones Tab */}
       {activeTab === "asignaciones" && (
-  <div>
-    {/* Monto sin asignar */}
-    {(() => {
-      const totalAsig = asignaciones.reduce(
-        (sum, a) => sum + (a.montoAsignado || 0),
-        0
-      );
-      const sinAsignar = proyecto.presupuesto - totalAsig;
-      return (
-        <div className="mb-4 p-4 bg-white dark:bg-gray-800 rounded shadow text-center">
-          <p className="text-sm dark:text-gray-400">Sin asignar</p>
-          <p className="text-2xl font-bold text-yellow-500 dark:text-yellow-300">
-            {sinAsignar.toFixed(2)} {proyecto.moneda}
-          </p>
-        </div>
-      );
-    })()}
-
-    <h2 className="text-xl font-semibold mb-2">Asignar colaboradores</h2>
-    <div className="bg-white dark:bg-gray-800 p-4 rounded shadow mb-4">
-      {colaboradores.map((col) => (
-        <div key={col.id} className="flex items-center gap-4 mb-2">
-          <label className="flex-1">{col.nombre}</label>
-          <input
-            type="number"
-            min="0"
-            value={asigInputs[col.id] ?? ""}
-            onChange={(e) =>
-              setAsigInputs((prev) => ({
-                ...prev,
-                [col.id]: e.target.value,
-              }))
-            }
-            className="w-24 p-1 border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
-            placeholder="Monto"
-          />
-        </div>
-      ))}
-      <button
-        onClick={async () => {
-          const colRef = collection(db, "proyectos", id, "asignaciones");
-          for (const col of colaboradores) {
-            const monto = Number(asigInputs[col.id] || 0);
-            const existing = asignaciones.find(
-              (a) => a.colaboradorId === col.id
+        <div>
+          {/* Monto sin asignar */}
+          {(() => {
+            const totalAsig = asignaciones.reduce(
+              (sum, a) => sum + (a.montoAsignado || 0),
+              0
             );
-            if (existing) {
-              if (monto > 0) {
-                await updateDoc(
-                  doc(db, "proyectos", id, "asignaciones", existing.id),
-                  { montoAsignado: monto }
-                );
-              } else {
-                await deleteDoc(
-                  doc(db, "proyectos", id, "asignaciones", existing.id)
-                );
-              }
-            } else if (monto > 0) {
-              await addDoc(colRef, {
-                uid,
-                colaboradorId: col.id,
-                montoAsignado: monto,
-              });
-            }
-          }
-        }}
-        className="mt-2 bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
-      >
-        Guardar asignaciones
-      </button>
-    </div>
+            const sinAsignar = proyecto.presupuesto - totalAsig;
+            return (
+              <div className="mb-4 p-4 bg-white dark:bg-gray-800 rounded shadow text-center">
+                <p className="text-sm dark:text-gray-400">Sin asignar</p>
+                <p className="text-2xl font-bold text-yellow-500 dark:text-yellow-300">
+                  {sinAsignar.toFixed(2)} {proyecto.moneda}
+                </p>
+              </div>
+            );
+          })()}
 
-    <h3 className="text-lg font-semibold mb-2">Resumen asignaciones</h3>
-    <table className="w-full table-auto bg-white dark:bg-gray-800 rounded shadow">
-      <thead>
-        <tr className="bg-gray-200 dark:bg-gray-700">
-          <th className="px-4 py-2 text-left">Colaborador</th>
-          <th className="px-4 py-2 text-right">Asignado</th>
-          <th className="px-4 py-2 text-right">Pagado</th>
-          <th className="px-4 py-2 text-right">Restante</th>
-        </tr>
-      </thead>
-      <tbody>
-        {asignaciones.map((a) => {
-          const pagosCol = pagos.filter(
-            (p) => p.colaboradorId === a.colaboradorId
-          );
-          const pagado = pagosCol.reduce(
-            (s, p) =>
-              s +
-              (proyecto.moneda === "USD"
-                ? Number(p.montoUSD || 0)
-                : Number(p.montoARS || 0)),
-            0
-          );
-          const pendiente = a.montoAsignado - pagado;
-          const nombre = colaboradores.find(
-            (c) => c.id === a.colaboradorId
-          )?.nombre;
-          return (
-            <tr
-              key={a.id}
-              className="border-t border-gray-300 dark:border-gray-700"
+          <h2 className="text-xl font-semibold mb-2">Asignar colaboradores</h2>
+          <div className="bg-white dark:bg-gray-800 p-4 rounded shadow mb-4">
+            {colaboradores.map((col) => (
+              <div key={col.id} className="flex items-center gap-4 mb-2">
+                <label className="flex-1">{col.nombre}</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={asigInputs[col.id] ?? ""}
+                  onChange={(e) =>
+                    setAsigInputs((prev) => ({
+                      ...prev,
+                      [col.id]: e.target.value,
+                    }))
+                  }
+                  className="w-24 p-1 border rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400"
+                  placeholder="Monto"
+                />
+              </div>
+            ))}
+            <button
+              onClick={async () => {
+                const colRef = collection(db, "proyectos", id, "asignaciones");
+                for (const col of colaboradores) {
+                  const monto = Number(asigInputs[col.id] || 0);
+                  const existing = asignaciones.find(
+                    (a) => a.colaboradorId === col.id
+                  );
+                  if (existing) {
+                    if (monto > 0) {
+                      await updateDoc(
+                        doc(db, "proyectos", id, "asignaciones", existing.id),
+                        { montoAsignado: monto }
+                      );
+                    } else {
+                      await deleteDoc(
+                        doc(db, "proyectos", id, "asignaciones", existing.id)
+                      );
+                    }
+                  } else if (monto > 0) {
+                    await addDoc(colRef, {
+                      uid,
+                      colaboradorId: col.id,
+                      mes: selectedMonth,
+                      montoAsignado: monto,
+                    });
+                  }
+                }
+              }}
+              className="mt-2 bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
             >
-              <td className="px-4 py-2">{nombre}</td>
-              <td className="px-4 py-2 text-right">
-                {a.montoAsignado.toFixed(2)}
-              </td>
-              <td className="px-4 py-2 text-right">{pagado.toFixed(2)}</td>
-              <td className="px-4 py-2 text-right">{pendiente.toFixed(2)}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  </div>
-)}
+              Guardar asignaciones
+            </button>
+          </div>
 
+          <h3 className="text-lg font-semibold mb-2">Resumen asignaciones</h3>
+          <table className="w-full table-auto bg-white dark:bg-gray-800 rounded shadow">
+            <thead>
+              <tr className="bg-gray-200 dark:bg-gray-700">
+                <th className="px-4 py-2 text-left">Colaborador</th>
+                <th className="px-4 py-2 text-right">Asignado</th>
+                <th className="px-4 py-2 text-right">Pagado</th>
+                <th className="px-4 py-2 text-right">Restante</th>
+              </tr>
+            </thead>
+            <tbody>
+              {asignaciones.map((a) => {
+                const pagosCol = pagos.filter(
+                  (p) => p.colaboradorId === a.colaboradorId
+                );
+                const pagado = pagosCol.reduce(
+                  (s, p) =>
+                    s +
+                    (proyecto.moneda === "USD"
+                      ? Number(p.montoUSD || 0)
+                      : Number(p.montoARS || 0)),
+                  0
+                );
+                const pendiente = a.montoAsignado - pagado;
+                const nombre = colaboradores.find(
+                  (c) => c.id === a.colaboradorId
+                )?.nombre;
+                return (
+                  <tr
+                    key={a.id}
+                    className="border-t border-gray-300 dark:border-gray-700"
+                  >
+                    <td className="px-4 py-2">{nombre}</td>
+                    <td className="px-4 py-2 text-right">
+                      {a.montoAsignado.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {pagado.toFixed(2)}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {pendiente.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
