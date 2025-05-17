@@ -45,7 +45,17 @@ export default function Vencimientos() {
     const unsub = onSnapshot(
       q,
       snap => {
-        setVencimientos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        // agregamos defaults de pagos parciales
+        const docs = snap.docs.map(d => {
+          const data = d.data();
+          return {
+            id: d.id,
+            pagos: data.pagos || [],
+            montoPagado: data.montoPagado || 0,
+            ...data,
+          };
+        });
+        setVencimientos(docs);
         setCargando(false);
       },
       err => console.warn("Error al cargar vencimientos:", err)
@@ -54,7 +64,52 @@ export default function Vencimientos() {
     return () => unsub();
   }, [uid]);
 
-  // 2) Marcar/desmarcar pagado y manejar recurrentes
+  // 2) Registrar pago parcial y crear gasto
+  const registrarPago = async (id, item) => {
+    const input = window.prompt("Ingrese el monto abonado:");
+    if (!input) return;
+    const monto = parseFloat(input);
+    if (isNaN(monto) || monto <= 0) {
+      toast.error("Monto inválido");
+      return;
+    }
+
+    const ref = doc(db, "vencimientos", id);
+
+    // actualizar montos en el vencimiento
+    const pagosPrevios = item.pagos || [];
+    const nuevoMontoPagado = (item.montoPagado || 0) + monto;
+    const nuevosPagos = [...pagosPrevios, { fecha: Timestamp.now(), monto }];
+    await updateDoc(ref, { pagos: nuevosPagos, montoPagado: nuevoMontoPagado });
+
+    // crear un gasto por ese abono
+    const gasto = {
+      uid,
+      categoria: item.categoria,
+      descripcion: `Abono a: ${item.descripcion}`,
+      metodoPago: item.metodoPago,
+      fecha: Timestamp.now(),
+      timestamp: Timestamp.now(),
+    };
+
+    if (item.moneda === "USD") {
+      // monto aquí es ARS convertido
+      gasto.moneda = "USD";
+      gasto.montoARSConvertido = monto;
+      gasto.montoUSD = parseFloat((monto / item.cotizacionAlMomento).toFixed(2));
+      gasto.cotizacionAlMomento = item.cotizacionAlMomento;
+    } else {
+      gasto.moneda = "ARS";
+      gasto.montoARS = monto;
+      gasto.montoUSDConvertido = parseFloat((monto / item.cotizacionAlMomento).toFixed(2));
+      gasto.cotizacionAlMomento = item.cotizacionAlMomento;
+    }
+
+    await addDoc(collection(db, "gastos"), gasto);
+    toast.success("Pago parcial registrado y gasto creado");
+  };
+
+  // 3) Marcar/desmarcar pagado y manejar recurrentes
   const togglePagado = async (id, pagado, item) => {
     const ref = doc(db, "vencimientos", id);
 
@@ -62,7 +117,7 @@ export default function Vencimientos() {
       // A) Marcar pagado
       await updateDoc(ref, { pagado: true });
 
-      // B) Crear gasto asociado
+      // B) Crear gasto asociado al monto total
       const gasto = {
         uid,
         categoria: item.categoria,
@@ -119,6 +174,8 @@ export default function Vencimientos() {
           cotizacionAlMomento: item.cotizacionAlMomento ?? null,
           pagado: false,
           idGasto: null,
+          pagos: [],
+          montoPagado: 0,
         };
         await addDoc(collection(db, "vencimientos"), nuevoVto);
 
@@ -137,7 +194,7 @@ export default function Vencimientos() {
     }
   };
 
-  // 3) Eliminar vencimiento (y gasto si existiera)
+  // 4) Eliminar vencimiento (y gasto si existiera)
   const eliminarVencimiento = async item => {
     if (!window.confirm("¿Eliminar este vencimiento?")) return;
     if (item.pagado && item.idGasto) {
@@ -146,7 +203,7 @@ export default function Vencimientos() {
     await deleteDoc(doc(db, "vencimientos", item.id));
   };
 
-  // 4) Agregar nuevo vencimiento
+  // 5) Agregar nuevo vencimiento
   const handleAgregar = async nuevo => {
     const fechaDate = new Date(`${nuevo.fecha}T00:00`);
     const base = {
@@ -155,6 +212,8 @@ export default function Vencimientos() {
       pagado: false,
       categoria: nuevo.categoria,
       fecha: Timestamp.fromDate(fechaDate),
+      pagos: [],
+      montoPagado: 0,
     };
 
     if (nuevo.montoUSD != null) {
@@ -178,7 +237,7 @@ export default function Vencimientos() {
     await addDoc(collection(db, "vencimientos"), base);
   };
 
-  // 5) Actualizar vencimiento existente
+  // 6) Actualizar vencimiento existente
   const handleActualizar = async nuevo => {
     const ref = doc(db, "vencimientos", nuevo.id);
     const datos = { ...nuevo };
@@ -212,7 +271,7 @@ export default function Vencimientos() {
     setEditando(null);
   };
 
-  // 6) Filtrar lista por mes y estado
+  // 7) Filtrar lista por mes y estado
   const lista = vencimientos
     .filter(v => {
       const dateObj = v.fecha?.toDate
@@ -262,6 +321,12 @@ export default function Vencimientos() {
               ? item.fecha
               : new Date(item.fecha);
 
+            // cálculos de pagado/restante en ARS y USD
+            const totalOriginalARS = item.moneda === "USD" ? item.montoARSConvertido : item.montoARS;
+            const cot = item.cotizacionAlMomento || cotizacionUSD;
+            const pagadoARS = item.montoPagado || 0;
+            const restanteARS = totalOriginalARS - pagadoARS;
+
             return (
               <li
                 key={item.id}
@@ -276,6 +341,12 @@ export default function Vencimientos() {
                       ? `u$d ${item.montoUSD.toFixed(2)} / $${formatearMoneda(item.montoARSConvertido)}`
                       : `$${formatearMoneda(item.montoARS)} / u$d ${item.montoUSDConvertido.toFixed(2)}`}
                   </p>
+                  <p className="text-sm text-gray-500">
+                    Pagado: ${formatearMoneda(pagadoARS)} ARS / u$d {(pagadoARS / cot).toFixed(2)}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    Restante: ${formatearMoneda(restanteARS)} ARS / u$d {(restanteARS / cot).toFixed(2)}
+                  </p>
                   <p className="text-sm text-gray-500">Categoría: {item.categoria}</p>
                   {item.recurrente && (
                     <span className="text-xs text-purple-500 font-semibold block mt-1">🔁 Recurrente mensual</span>
@@ -289,6 +360,14 @@ export default function Vencimientos() {
                   >
                     {item.pagado ? "Desmarcar" : "Marcar pagado"}
                   </button>
+                  {!item.pagado && (
+                    <button
+                      onClick={() => registrarPago(item.id, item)}
+                      className="text-sm px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700"
+                    >
+                      Registrar pago
+                    </button>
+                  )}
                   <button
                     onClick={() => setEditando(item)}
                     className="text-sm px-2 py-1 rounded bg-yellow-100 text-yellow-800 border hover:bg-yellow-200"

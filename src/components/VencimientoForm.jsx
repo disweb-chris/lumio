@@ -9,6 +9,7 @@ import { convertirUsdAArsFijo, convertirArsAUsdFijo } from "../utils/conversion"
 export default function VencimientoForm({
   onAgregar,
   onActualizar,
+  onAbonarPago,       // nuevo callback que recibe (id, monto)
   editando,
   onCancelEdit,
   cotizacionUSD = 1,
@@ -25,6 +26,9 @@ export default function VencimientoForm({
   const [recurrente, setRecurrente] = useState(false);
   const [categoria, setCategoria] = useState("");
   const [categoriasDisponibles, setCategoriasDisponibles] = useState([]);
+
+  // Para registrar abonos parciales
+  const [pagoParcial, setPagoParcial] = useState("");
 
   const subOpcionesTarjeta = [
     "Ualá Emma",
@@ -45,45 +49,46 @@ export default function VencimientoForm({
     const unsub = onSnapshot(q, (snap) => {
       const list = snap.docs.map((d) => d.data().nombre);
       setCategoriasDisponibles(list);
-      // set default categoria if none
       if (!categoria && list.length) setCategoria(list[0]);
     });
     return () => unsub();
-  }, [uid]);
+  }, [uid, categoria]);
 
   // Rellenar datos al editar
   useEffect(() => {
     if (editando) {
       setDescripcion(editando.descripcion || "");
-      // fecha
       setFecha(
         editando.fecha?.toDate
           ? editando.fecha.toDate().toISOString().split("T")[0]
           : editando.fecha || new Date().toISOString().split("T")[0]
       );
-      // metodo pago y submetodo
-      if (editando.metodoPago?.includes("Tarjeta")) {
+      // método de pago
+      if (editando.metodoPago?.startsWith("Tarjeta:")) {
         setMetodoPago("Tarjeta de crédito");
-        setSubMetodo(editando.metodoPago.split(":")[1]?.trim() || "");
+        setSubMetodo(editando.metodoPago.replace("Tarjeta: ", ""));
       } else {
         setMetodoPago(editando.metodoPago || "Efectivo");
         setSubMetodo("");
       }
       setRecurrente(!!editando.recurrente);
       setCategoria(editando.categoria || "");
-      // montos
-      if (editando.moneda === "ARS" || editando.montoARS != null) {
-        const ars = editando.montoARS ?? editando.montoARSConvertido;
-        setMontoARS(ars?.toString() || "");
+      // montos originales y pendientes
+      if (editando.moneda === "ARS") {
+        const orig = editando.montoARS ?? editando.montoARSConvertido;
+        const pagado = editando.montoPagado ?? 0;
+        setMontoARS(orig?.toString() || "");
         setMontoUSD(
-          ars && cotizacionUSD > 0 ? (ars / cotizacionUSD).toFixed(2) : ""
+          orig && cotizacionUSD > 0 ? (orig / cotizacionUSD).toFixed(2) : ""
         );
+        setPagoParcial(""); // reset input de abono
       } else {
-        const usd = editando.montoUSD ?? editando.montoUSDConvertido;
-        setMontoUSD(usd?.toString() || "");
+        const origUSD = editando.montoUSD ?? editando.montoUSDConvertido;
+        setMontoUSD(origUSD?.toString() || "");
         setMontoARS(
-          usd && cotizacionUSD > 0 ? (usd * cotizacionUSD).toFixed(2) : ""
+          origUSD && cotizacionUSD > 0 ? (origUSD * cotizacionUSD).toFixed(2) : ""
         );
+        setPagoParcial("");
       }
     } else {
       // reset formulario
@@ -95,20 +100,38 @@ export default function VencimientoForm({
       setSubMetodo("");
       setRecurrente(false);
       setCategoria(categoriasDisponibles[0] || "");
+      setPagoParcial("");
     }
-  }, [editando, cotizacionUSD, categoriasDisponibles]);
+  }, [editando, cotizacionUSD]);
 
+  // Sincronizar montos ARS ↔ USD
   const actualizarDesdeARS = (v) => {
     setMontoARS(v);
     const num = parseFloat(v);
-    if (!isNaN(num) && cotizacionUSD > 0) setMontoUSD((num / cotizacionUSD).toFixed(2));
+    if (!isNaN(num) && cotizacionUSD > 0) {
+      setMontoUSD((num / cotizacionUSD).toFixed(2));
+    }
   };
   const actualizarDesdeUSD = (v) => {
     setMontoUSD(v);
     const num = parseFloat(v);
-    if (!isNaN(num) && cotizacionUSD > 0) setMontoARS((num * cotizacionUSD).toFixed(2));
+    if (!isNaN(num) && cotizacionUSD > 0) {
+      setMontoARS((num * cotizacionUSD).toFixed(2));
+    }
   };
 
+  // Maneja el abono parcial
+  const handleAbono = () => {
+    const monto = parseFloat(pagoParcial);
+    if (!editando?.id || isNaN(monto) || monto <= 0) {
+      toast.error("Ingresa un monto válido para abonar.");
+      return;
+    }
+    onAbonarPago(editando.id, monto);
+    setPagoParcial("");
+  };
+
+  // Envío del form (nuevo o editar)
   const handleSubmit = async (e) => {
     e.preventDefault();
     const ars = parseFloat(montoARS);
@@ -122,7 +145,6 @@ export default function VencimientoForm({
     const metodo = metodoPago === "Tarjeta de crédito" && subMetodo
       ? `Tarjeta: ${subMetodo}`
       : metodoPago;
-    // objeto a guardar
     const base = {
       uid,
       descripcion,
@@ -130,6 +152,7 @@ export default function VencimientoForm({
       metodoPago: metodo,
       recurrente,
       categoria,
+      montoPagado: editando?.montoPagado ?? 0,        // conserva lo ya abonado
     };
     if (tieneARS) {
       const conv = convertirArsAUsdFijo(ars, cotizacionUSD);
@@ -137,7 +160,7 @@ export default function VencimientoForm({
         moneda: "ARS",
         montoARS: ars,
         montoUSDConvertido: parseFloat(conv.montoUSDConvertido),
-        cotizacionAlMomento: parseFloat(conv.cotizacionAlMomento),
+        cotizacionAlMomento: parseFloat(conv.montoARSConvertido), // ojo: usar la ARSConvertido para cot
       });
     }
     if (tieneUSD) {
@@ -155,6 +178,7 @@ export default function VencimientoForm({
         await onActualizar({ id: editando.id, ...base });
         toast.success("✅ Vencimiento actualizado");
       } else {
+        base.montoPagado = 0;  // al crear, aún no hay abonos
         await onAgregar(base);
         toast.success("✅ Vencimiento agregado");
       }
@@ -162,20 +186,63 @@ export default function VencimientoForm({
       console.error(err);
       toast.error("❌ Error guardando vencimiento");
     }
-
-    // limpiar y notificar cancel
     onCancelEdit?.();
   };
 
+  // Calcula y muestra lo pendiente
+  const renderPendiente = () => {
+    if (!editando) return null;
+    const origARS = editando.moneda === "ARS"
+      ? (editando.montoARS ?? 0)
+      : (editando.montoARSConvertido ?? 0);
+    const pagado = editando.montoPagado ?? 0;
+    const restante = origARS - pagado;
+    const restanteUSD = (restante / cotizacionUSD).toFixed(2);
+    return (
+      <div className="mb-4 p-3 bg-yellow-50 dark:bg-yellow-900 rounded">
+        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+          Pagado: ${pagado.toFixed(2)} ARS / u$d {(pagado / cotizacionUSD).toFixed(2)}
+        </p>
+        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+          Restante: ${restante.toFixed(2)} ARS / u$d {restanteUSD}
+        </p>
+        <div className="flex gap-2 mt-2">
+          <input
+            type="number"
+            placeholder="Monto a abonar"
+            value={pagoParcial}
+            onChange={e => setPagoParcial(e.target.value)}
+            className="flex-1 p-2 rounded border dark:bg-gray-700 dark:text-white"
+          />
+          <button
+            type="button"
+            onClick={handleAbono}
+            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+          >
+            Abonar
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <form onSubmit={handleSubmit} className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6">
+    <form
+      onSubmit={handleSubmit}
+      className="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md mb-6"
+    >
       <h2 className="text-xl font-semibold mb-4 text-gray-800 dark:text-white">
         {editando ? "Editar vencimiento" : "Nuevo vencimiento"}
       </h2>
 
+      {/* Sección de abono parcial cuando estamos editando */}
+      {renderPendiente()}
+
       {/* Descripción */}
       <div className="mb-2">
-        <label className="block text-sm text-gray-700 dark:text-gray-300">Descripción</label>
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Descripción
+        </label>
         <input
           type="text"
           value={descripcion}
@@ -187,7 +254,9 @@ export default function VencimientoForm({
       {/* Monto ARS y USD */}
       <div className="flex gap-2 mb-2">
         <div className="flex-1">
-          <label className="block text-sm text-gray-700 dark:text-gray-300">Monto ARS</label>
+          <label className="block text-sm text-gray-700 dark:text-gray-300">
+            Monto ARS
+          </label>
           <input
             type="number"
             value={montoARS}
@@ -196,7 +265,9 @@ export default function VencimientoForm({
           />
         </div>
         <div className="flex-1">
-          <label className="block text-sm text-gray-700 dark:text-gray-300">Monto USD</label>
+          <label className="block text-sm text-gray-700 dark:text-gray-300">
+            Monto USD
+          </label>
           <input
             type="number"
             value={montoUSD}
@@ -206,9 +277,11 @@ export default function VencimientoForm({
         </div>
       </div>
 
-      {/* Fecha */}
+      {/* Resto del formulario igual */}
       <div className="mb-2">
-        <label className="block text-sm text-gray-700 dark:text-gray-300">Fecha</label>
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Fecha
+        </label>
         <input
           type="date"
           value={fecha}
@@ -217,9 +290,10 @@ export default function VencimientoForm({
         />
       </div>
 
-      {/* Método de pago */}
       <div className="mb-2">
-        <label className="block text-sm text-gray-700 dark:text-gray-300">Método de pago</label>
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Método de pago
+        </label>
         <select
           value={metodoPago}
           onChange={e => { setMetodoPago(e.target.value); setSubMetodo(""); }}
@@ -232,22 +306,24 @@ export default function VencimientoForm({
         </select>
       </div>
 
-      {/* Submétodo tarjeta */}
       {metodoPago === "Tarjeta de crédito" && (
         <div className="mb-2">
-          <label className="block text-sm text-gray-700 dark:text-gray-300">Tarjeta</label>
+          <label className="block text-sm text-gray-700 dark:text-gray-300">
+            Tarjeta
+          </label>
           <select
             value={subMetodo}
             onChange={e => setSubMetodo(e.target.value)}
             className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
           >
             <option value="">Selecciona una tarjeta</option>
-            {subOpcionesTarjeta.map(op => <option key={op} value={op}>{op}</option>)}
+            {subOpcionesTarjeta.map(op => (
+              <option key={op} value={op}>{op}</option>
+            ))}
           </select>
         </div>
       )}
 
-      {/* Recurrente */}
       <div className="mb-4 flex items-center gap-2">
         <input
           type="checkbox"
@@ -256,19 +332,24 @@ export default function VencimientoForm({
           onChange={e => setRecurrente(e.target.checked)}
           className="mr-2"
         />
-        <label htmlFor="rec" className="text-sm text-gray-700 dark:text-gray-300">Recurrente mensual</label>
+        <label htmlFor="rec" className="text-sm text-gray-700 dark:text-gray-300">
+          Recurrente mensual
+        </label>
       </div>
 
-      {/* Categoría */}
       <div className="mb-4">
-        <label className="block text-sm text-gray-700 dark:text-gray-300">Categoría</label>
+        <label className="block text-sm text-gray-700 dark:text-gray-300">
+          Categoría
+        </label>
         <select
           value={categoria}
           onChange={e => setCategoria(e.target.value)}
           className="w-full p-2 rounded border dark:bg-gray-700 dark:text-white"
         >
           <option value="">Selecciona una categoría</option>
-          {categoriasDisponibles.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          {categoriasDisponibles.map(cat => (
+            <option key={cat} value={cat}>{cat}</option>
+          ))}
         </select>
       </div>
 
